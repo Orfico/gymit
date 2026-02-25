@@ -1,0 +1,121 @@
+{% extends 'gym/base.html' %}
+{% block title %}{{ plan.name }} — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+
+    <div class="d-flex align-items-center mb-3 gap-2">
+        <a href="{% url 'plan_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <div class="flex-grow-1">
+            <h5 class="mb-0 fw-bold">{{ plan.name }}</h5>
+            {% if plan.description %}
+            <small class="text-secondary">{{ plan.description }}</small>
+            {% endif %}
+        </div>
+        <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="dropdown">
+                <i class="bi bi-three-dots-vertical"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+                <li><a class="dropdown-item" href="{% url 'plan_edit' plan.pk %}">
+                    <i class="bi bi-pencil me-2"></i>Modifica</a></li>
+                <li><a class="dropdown-item text-danger" href="{% url 'plan_delete' plan.pk %}">
+                    <i class="bi bi-trash me-2"></i>Elimina</a></li>
+            </ul>
+        </div>
+    </div>
+
+    {% if not plan.is_active %}
+    <div class="alert alert-secondary py-2 small">Scheda non attiva</div>
+    {% endif %}
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h6 class="text-secondary text-uppercase fw-bold small mb-0">Esercizi ({{ planned|length }})</h6>
+            {% if planned %}
+            <small class="text-secondary" style="font-size:11px;">
+                <i class="bi bi-grip-vertical me-1"></i>Trascina per riordinare
+            </small>
+            {% endif %}
+        </div>
+        <a href="{% url 'planned_exercise_add' plan.pk %}" class="btn btn-outline-warning btn-sm">
+            <i class="bi bi-plus-lg"></i> Aggiungi
+        </a>
+    </div>
+
+    <!-- Lista draggable -->
+    <div id="exercise-list">
+
+        {% for pe in planned %}
+        <div class="card bg-black border-secondary mb-2 drag-item"
+             data-id="{{ pe.pk }}">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex align-items-center gap-2">
+
+                    <!-- Handle drag (visibile, touch-friendly) -->
+                    <div class="drag-handle text-secondary flex-shrink-0"
+                         style="cursor:grab; padding: 4px 6px; touch-action: none;">
+                        <i class="bi bi-grip-vertical fs-5"></i>
+                    </div>
+
+                    <!-- Contenuto -->
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="fw-semibold text-truncate">{{ pe.exercise.name }}</div>
+                        <div class="small text-secondary">
+                            {{ pe.target_sets }} serie × {{ pe.target_reps }} reps
+                            {% if pe.notes %} &nbsp;·&nbsp; {{ pe.notes }}{% endif %}
+                        </div>
+                        <small class="text-secondary">{{ pe.exercise.get_muscle_group_display }}</small>
+                    </div>
+
+                    <!-- Azioni -->
+                    <div class="d-flex gap-1 flex-shrink-0">
+                        <a href="{% url 'log_create' %}?exercise={{ pe.exercise.pk }}"
+                           class="btn btn-warning btn-sm">
+                            <i class="bi bi-plus"></i>
+                        </a>
+                        <a href="{% url 'exercise_progress' pe.exercise.pk %}"
+                           class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-graph-up"></i>
+                        </a>
+                        <form method="post" action="{% url 'planned_exercise_remove' pe.pk %}"
+                              onsubmit="return confirm('Rimuovere dalla scheda?')">
+                            {% csrf_token %}
+                            <button class="btn btn-outline-danger btn-sm">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </form>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-center text-secondary py-4 border border-secondary rounded">
+            <p>Nessun esercizio nella scheda.</p>
+            <a href="{% url 'planned_exercise_add' plan.pk %}" class="btn btn-warning btn-sm">
+                Aggiungi il primo
+            </a>
+        </div>
+        {% endfor %}
+
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% load static %}
+<script src="{% static 'gym/js/dragdrop.js' %}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        initDragDrop({
+            listId: 'exercise-list',
+            reorderUrl: '{% url "plan_reorder" plan.pk %}',
+            csrfToken: '{{ csrf_token }}',
+        });
+    });
+</script>
+{% endblock %}

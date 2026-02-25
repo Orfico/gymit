@@ -1,0 +1,39 @@
+{% extends 'gym/base.html' %}
+{% block title %}Login — GymIt{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column justify-content-center min-vh-75 py-5">
+    <div class="text-center mb-4">
+        <i class="bi bi-lightning-charge-fill text-warning" style="font-size:3rem;"></i>
+        <h3 class="fw-bold mt-2">GymIt</h3>
+        <p class="text-secondary">Traccia i tuoi progressi in palestra</p>
+    </div>
+
+    <div class="card bg-black border-secondary mx-auto" style="max-width:400px; width:100%;">
+        <div class="card-body p-4">
+            <h5 class="fw-bold mb-4">Accedi</h5>
+            <form method="post">
+                {% csrf_token %}
+                {% for field in form %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.errors %}
+                    <div class="text-danger small mt-1">{{ field.errors }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2">
+                    Accedi
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="text-center mt-3">
+        <a href="{% url 'register' %}" class="text-secondary text-decoration-none">
+            Non hai un account? <span class="text-warning">Registrati</span>
+        </a>
+    </div>
+</div>
+{% endblock %}

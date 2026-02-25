@@ -1,0 +1,46 @@
+{% extends 'gym/base.html' %}
+{% block title %}I miei progressi — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h5 class="fw-bold mb-0"><i class="bi bi-graph-up me-2 text-warning"></i>I miei progressi</h5>
+    </div>
+
+    {% if exercises %}
+    {% regroup exercises by exercise.get_muscle_group_display as grouped %}
+    {% for group in grouped %}
+    <h6 class="text-secondary text-uppercase fw-bold small mb-2 mt-4">{{ group.grouper }}</h6>
+    {% for item in group.list %}
+    <a href="{% url 'exercise_progress' item.exercise.pk %}"
+       class="card bg-black border-secondary mb-2 text-decoration-none text-light hover-card">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="fw-semibold">{{ item.exercise.name }}</div>
+                    <div class="small text-secondary">
+                        Ultima: {{ item.last_log.date|date:"d M Y" }} &nbsp;·&nbsp;
+                        {{ item.last_log.weight }} kg × {{ item.last_log.reps }} reps
+                    </div>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-warning text-dark fs-6">{{ item.best_one_rm|floatformat:2 }}</span>
+                    <div class="small text-secondary">kg 1RM</div>
+                </div>
+            </div>
+        </div>
+    </a>
+    {% endfor %}
+    {% endfor %}
+
+    {% else %}
+    <div class="text-center text-secondary py-5">
+        <i class="bi bi-graph-up fs-1"></i>
+        <p class="mt-3">Nessun progresso ancora — inizia a loggare!</p>
+        <a href="{% url 'log_create' %}" class="btn btn-warning">Primo allenamento</a>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends 'gym/base.html' %}
+{% block title %}Elimina scheda — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+    <div class="card bg-black border-danger">
+        <div class="card-body text-center py-4">
+            <i class="bi bi-exclamation-triangle-fill text-danger fs-1"></i>
+            <h5 class="mt-3">Eliminare "{{ plan.name }}"?</h5>
+            <p class="text-secondary">Questa azione è irreversibile. I log di allenamento associati non verranno eliminati.</p>
+            <div class="d-flex gap-3 justify-content-center mt-4">
+                <a href="{% url 'plan_detail' plan.pk %}" class="btn btn-outline-secondary">Annulla</a>
+                <form method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger fw-bold">Elimina</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

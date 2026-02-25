@@ -1,0 +1,100 @@
+{% extends 'gym/base.html' %}
+{% block title %}Registra sessione — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+    <div class="d-flex align-items-center mb-4 gap-3">
+        <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <h5 class="mb-0 fw-bold">Registra sessione</h5>
+    </div>
+
+    <div class="card bg-black border-secondary">
+        <div class="card-body">
+            <form method="post" id="logForm">
+                {% csrf_token %}
+
+                <!-- Esercizio con autocomplete -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Esercizio</label>
+                    {{ form.exercise }}
+                    {% if form.exercise.errors %}
+                    <div class="text-danger small mt-1">{{ form.exercise.errors }}</div>
+                    {% endif %}
+                    <div class="form-text text-secondary">
+                        <i class="bi bi-search me-1"></i>Digita almeno 2 lettere per cercare
+                    </div>
+                </div>
+
+                <!-- Data -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Data</label>
+                    {{ form.date }}
+                </div>
+
+                <!-- Serie e ripetizioni -->
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">Serie</label>
+                        {{ form.sets }}
+                        {% if form.sets.errors %}
+                        <div class="text-danger small mt-1">{{ form.sets.errors }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">Ripetizioni</label>
+                        {{ form.reps }}
+                    </div>
+                </div>
+
+                <!-- Carico -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Carico (kg)</label>
+                    {{ form.weight }}
+                </div>
+
+                <!-- Preview 1RM in tempo reale -->
+                <div class="alert alert-dark border-warning mb-3 py-2" id="oneRmPreview" style="display:none;">
+                    <span class="text-secondary small">Massimale teorico (Epley): </span>
+                    <span class="fw-bold text-warning fs-5" id="oneRmValue">—</span>
+                    <span class="text-secondary"> kg</span>
+                </div>
+
+                <!-- Note -->
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Note <span class="text-secondary">(opzionale)</span></label>
+                    {{ form.notes }}
+                </div>
+
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3">
+                    <i class="bi bi-check-lg me-2"></i>Salva sessione
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card bg-black border-secondary mt-3">
+        <div class="card-body py-2">
+            <small class="text-secondary">
+                <i class="bi bi-info-circle me-1"></i>
+                Ogni sessione viene registrata come nuovo record nello storico. Il carico precedente non viene mai sovrascritto.
+            </small>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% load static %}
+<script src="{% static 'gym/js/autocomplete.js' %}"></script>
+<script src="{% static 'gym/js/main.js' %}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        initExerciseAutocomplete({
+            selectId: 'id_exercise',
+            endpointUrl: '{% url "exercise_autocomplete" %}',
+        });
+    });
+</script>
+{% endblock %}

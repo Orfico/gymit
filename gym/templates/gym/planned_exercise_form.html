@@ -1,0 +1,72 @@
+{% extends 'gym/base.html' %}
+{% block title %}Aggiungi esercizio — {{ plan.name }}{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+    <div class="d-flex align-items-center mb-4 gap-3">
+        <a href="{% url 'plan_detail' plan.pk %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <div>
+            <h5 class="mb-0 fw-bold">Aggiungi esercizio</h5>
+            <small class="text-secondary">{{ plan.name }}</small>
+        </div>
+    </div>
+
+    <div class="card bg-black border-secondary">
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+
+                <!-- Esercizio con autocomplete -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Esercizio</label>
+                    {{ form.exercise }}
+                    {% if form.exercise.errors %}
+                    <div class="text-danger small mt-1">{{ form.exercise.errors }}</div>
+                    {% endif %}
+                    <div class="form-text text-secondary">
+                        <i class="bi bi-search me-1"></i>Digita almeno 2 lettere per cercare
+                    </div>
+                </div>
+
+                <!-- Altri campi -->
+                {% for field in form %}
+                {% if field.name != 'exercise' %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.errors %}
+                    <div class="text-danger small mt-1">{{ field.errors }}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% endfor %}
+
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2">
+                    Aggiungi alla scheda
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <a href="{% url 'exercise_create' %}" class="text-secondary small">
+            <i class="bi bi-plus-circle me-1"></i>L'esercizio non è in lista? Crealo
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% load static %}
+<script src="{% static 'gym/js/autocomplete.js' %}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        initExerciseAutocomplete({
+            selectId: 'id_exercise',
+            endpointUrl: '{% url "exercise_autocomplete" %}',
+        });
+    });
+</script>
+{% endblock %}
