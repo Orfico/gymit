@@ -149,3 +149,8 @@ canvas {
 #drag-placeholder {
     pointer-events: none;
 }
+
+/* Utility — necessario per text-truncate dentro flex */
+.min-w-0 {
+    min-width: 0;
+}

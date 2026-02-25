@@ -14,15 +14,40 @@
             <h5 class="fw-bold mb-4">Accedi</h5>
             <form method="post">
                 {% csrf_token %}
-                {% for field in form %}
+
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">{{ field.label }}</label>
-                    {{ field }}
-                    {% if field.errors %}
-                    <div class="text-danger small mt-1">{{ field.errors }}</div>
+                    <label for="{{ form.username.id_for_label }}" class="form-label fw-semibold">
+                        Username
+                    </label>
+                    <input type="text"
+                           name="{{ form.username.html_name }}"
+                           id="{{ form.username.id_for_label }}"
+                           class="form-control{% if form.username.errors %} is-invalid{% endif %}"
+                           autocomplete="username"
+                           autofocus>
+                    {% if form.username.errors %}
+                    <div class="invalid-feedback">{{ form.username.errors.0 }}</div>
                     {% endif %}
                 </div>
-                {% endfor %}
+
+                <div class="mb-3">
+                    <label for="{{ form.password.id_for_label }}" class="form-label fw-semibold">
+                        Password
+                    </label>
+                    <input type="password"
+                           name="{{ form.password.html_name }}"
+                           id="{{ form.password.id_for_label }}"
+                           class="form-control{% if form.password.errors %} is-invalid{% endif %}"
+                           autocomplete="current-password">
+                    {% if form.password.errors %}
+                    <div class="invalid-feedback">{{ form.password.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                {% if form.non_field_errors %}
+                <div class="alert alert-danger py-2 small">{{ form.non_field_errors.0 }}</div>
+                {% endif %}
+
                 <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2">
                     Accedi
                 </button>
