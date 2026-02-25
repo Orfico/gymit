@@ -260,11 +260,12 @@ def progress_overview(request):
     con il miglior 1RM per ciascuno.
     """
     exercise_ids = (
-        ExerciseLog.objects
-        .filter(user=request.user)
-        .values_list('exercise_id', flat=True)
-        .distinct()
-    )
+    ExerciseLog.objects
+    .filter(user=request.user)
+    .order_by('exercise_id')   # annulla l'ordinamento default prima del distinct
+    .values_list('exercise_id', flat=True)
+    .distinct()
+)
     exercises_with_best = []
     for ex_id in exercise_ids:
         exercise = Exercise.objects.get(pk=ex_id)
