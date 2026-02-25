@@ -344,3 +344,26 @@ def exercise_create(request):
         messages.success(request, f'Esercizio "{exercise.name}" aggiunto.')
         return redirect('exercise_list')
     return render(request, 'gym/exercise_form.html', {'form': form})
+
+# ─── PWA ──────────────────────────────────────────────────────────────────────
+
+def service_worker(request):
+    """
+    Serve il service worker dalla root (/sw.js) in modo che possa
+    controllare l'intero sito. Un SW servito da /static/ non può
+    avere scope /, quindi serve questa view dedicata.
+    """
+    import os
+    from django.http import HttpResponse
+    from django.contrib.staticfiles import finders
+    sw_path = finders.find('gym/sw.js')
+    if sw_path and os.path.exists(sw_path):
+        with open(sw_path, 'r') as f:
+            content = f.read()
+    else:
+        content = ''
+    response = HttpResponse(content, content_type='application/javascript')
+    response['Service-Worker-Allowed'] = '/'
+    response['Cache-Control'] = 'no-cache'
+    return response
+

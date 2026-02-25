@@ -31,4 +31,7 @@ urlpatterns = [
     # Catalogo esercizi
     path('exercises/', views.exercise_list, name='exercise_list'),
     path('exercises/create/', views.exercise_create, name='exercise_create'),
+
+    # PWA Service Worker (deve stare alla root per avere scope /)
+    path('sw.js', views.service_worker, name='service_worker'),
 ]
