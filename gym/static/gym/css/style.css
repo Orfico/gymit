@@ -1,6 +1,7 @@
 /* GymIt — Custom styles */
 
 :root {
+    --bs-secondary-color: #ced4da;
     --gymit-yellow: #ffc107;
     --gymit-dark: #0d0d0d;
     --gymit-card: #111111;
