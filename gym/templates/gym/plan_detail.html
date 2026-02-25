@@ -8,13 +8,13 @@
         <a href="{% url 'plan_list' %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left"></i>
         </a>
-        <div class="flex-grow-1">
-            <h5 class="mb-0 fw-bold">{{ plan.name }}</h5>
+        <div class="flex-grow-1 min-w-0">
+            <h5 class="mb-0 fw-bold text-truncate">{{ plan.name }}</h5>
             {% if plan.description %}
             <small class="text-secondary">{{ plan.description }}</small>
             {% endif %}
         </div>
-        <div class="dropdown">
+        <div class="dropdown flex-shrink-0">
             <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="dropdown">
                 <i class="bi bi-three-dots-vertical"></i>
             </button>
@@ -40,37 +40,34 @@
             </small>
             {% endif %}
         </div>
-        <a href="{% url 'planned_exercise_add' plan.pk %}" class="btn btn-outline-warning btn-sm">
+        <a href="{% url 'planned_exercise_add' plan.pk %}" class="btn btn-outline-warning btn-sm flex-shrink-0">
             <i class="bi bi-plus-lg"></i> Aggiungi
         </a>
     </div>
 
-    <!-- Lista draggable -->
     <div id="exercise-list">
-
         {% for pe in planned %}
-        <div class="card bg-black border-secondary mb-2 drag-item"
-             data-id="{{ pe.pk }}">
+        <div class="card bg-black border-secondary mb-2 drag-item" data-id="{{ pe.pk }}">
             <div class="card-body py-2 px-3">
                 <div class="d-flex align-items-center gap-2">
 
-                    <!-- Handle drag (visibile, touch-friendly) -->
+                    <!-- Handle drag -->
                     <div class="drag-handle text-secondary flex-shrink-0"
                          style="cursor:grab; padding: 4px 6px; touch-action: none;">
                         <i class="bi bi-grip-vertical fs-5"></i>
                     </div>
 
-                    <!-- Contenuto -->
+                    <!-- Contenuto — occupa tutto lo spazio disponibile, tronca se necessario -->
                     <div class="flex-grow-1 min-w-0">
                         <div class="fw-semibold text-truncate">{{ pe.exercise.name }}</div>
-                        <div class="small text-secondary">
+                        <div class="small text-secondary text-truncate">
                             {{ pe.target_sets }} serie × {{ pe.target_reps }} reps
-                            {% if pe.notes %} &nbsp;·&nbsp; {{ pe.notes }}{% endif %}
+                            {% if pe.notes %} · {{ pe.notes }}{% endif %}
                         </div>
                         <small class="text-secondary">{{ pe.exercise.get_muscle_group_display }}</small>
                     </div>
 
-                    <!-- Azioni -->
+                    <!-- Azioni — larghezza fissa, non si restringe mai -->
                     <div class="d-flex gap-1 flex-shrink-0">
                         <a href="{% url 'log_create' %}?exercise={{ pe.exercise.pk }}"
                            class="btn btn-warning btn-sm">
@@ -100,7 +97,6 @@
             </a>
         </div>
         {% endfor %}
-
     </div>
 
 </div>

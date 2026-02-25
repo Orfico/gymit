@@ -4,9 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}GymIt{% endblock %}</title>
+
+    <!-- PWA -->
+    {% load static %}
+    <link rel="manifest" href="{% static 'gym/manifest.json' %}">
+    <meta name="theme-color" content="#ffc107">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GymIt">
+    <link rel="apple-touch-icon" href="{% static 'gym/icons/icon-192.png' %}">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
-    {% load static %}
     <link href="{% static 'gym/css/style.css' %}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
@@ -95,5 +104,16 @@
 {% load static %}
 <script src="{% static 'gym/js/main.js' %}"></script>
 {% block extra_js %}{% endblock %}
+
+<!-- PWA Service Worker -->
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('{% static "gym/sw.js" %}', {
+                scope: '/'
+            }).catch(err => console.warn('SW registration failed:', err));
+        });
+    }
+</script>
 </body>
 </html>

@@ -1,0 +1,5 @@
+
+/* Utility — necessario per text-truncate dentro flex */
+.min-w-0 {
+    min-width: 0;
+}
