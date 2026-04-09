@@ -6,7 +6,7 @@
 
     <!-- Header -->
     <div class="d-flex align-items-center mb-4 gap-3">
-        <a href="{% url 'progress_overview' %}" class="btn btn-outline-secondary btn-sm">
+        <a href="{% if request.GET.plan %}{% url 'plan_detail' request.GET.plan %}{% else %}{% url 'progress_overview' %}{% endif %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left"></i>
         </a>
         <div>
@@ -68,7 +68,7 @@
     <!-- Storico sessioni -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h6 class="text-secondary text-uppercase fw-bold small mb-0">Storico sessioni</h6>
-        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}" class="btn btn-warning btn-sm fw-bold">
+        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}" class="btn btn-warning btn-sm fw-bold">
             <i class="bi bi-plus-lg"></i> Aggiungi
         </a>
     </div>
@@ -111,7 +111,7 @@
         {% else %}
         <p class="mt-2">Nessun log ancora. Inizia subito!</p>
         {% endif %}
-        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}" class="btn btn-warning btn-sm">
+        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}" class="btn btn-warning btn-sm">
             Aggiungi sessione
         </a>
     </div>

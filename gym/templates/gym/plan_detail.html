@@ -73,8 +73,8 @@
                            class="btn btn-warning btn-sm">
                             <i class="bi bi-plus"></i>
                         </a>
-                        <a href="{% url 'exercise_progress' pe.exercise.pk %}"
-                           class="btn btn-outline-secondary btn-sm">
+                        <a href="{% url 'exercise_progress' pe.exercise.pk %}?from=plan&plan={{ plan.pk }}"
+                            class="btn btn-outline-secondary btn-sm">
                             <i class="bi bi-graph-up"></i>
                         </a>
                         <form method="post" action="{% url 'planned_exercise_remove' pe.pk %}"
