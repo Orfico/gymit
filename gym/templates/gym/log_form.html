@@ -4,7 +4,7 @@
 {% block content %}
 <div class="pt-3">
     <div class="d-flex align-items-center mb-4 gap-3">
-        <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary btn-sm">
+        <a href="{% if request.GET.plan %}{% url 'plan_detail' request.GET.plan %}{% else %}{% url 'dashboard' %}{% endif %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left"></i>
         </a>
         <h5 class="mb-0 fw-bold">Registra sessione</h5>
@@ -14,6 +14,8 @@
         <div class="card-body">
             <form method="post" id="logForm">
                 {% csrf_token %}
+                <input type="hidden" name="from" value="{{ request.GET.from }}">
+                <input type="hidden" name="plan" value="{{ request.GET.plan }}">
 
                 <!-- Esercizio con autocomplete -->
                 <div class="mb-3">

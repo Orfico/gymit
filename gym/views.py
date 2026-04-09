@@ -173,6 +173,10 @@ def log_create(request):
             request,
             f'Log salvato — 1RM teorico: {log.one_rm} kg'
         )
+        from_page = request.POST.get('from')
+        plan_pk = request.POST.get('plan')
+        if from_page == 'plan' and plan_pk:
+            return redirect('plan_detail', pk=plan_pk)
         return redirect('exercise_progress', exercise_id=log.exercise.pk)
     return render(request, 'gym/log_form.html', {'form': form})
 
