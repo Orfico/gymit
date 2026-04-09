@@ -47,47 +47,37 @@
 
     <div id="exercise-list">
         {% for pe in planned %}
-        <div class="card bg-black border-secondary mb-2 drag-item" data-id="{{ pe.pk }}">
-            <div class="card-body py-2 px-3">
-                <div class="d-flex align-items-center gap-2">
+        <div class="swipe-item drag-item mb-2" data-id="{{ pe.pk }}">
 
-                    <!-- Handle drag -->
-                    <div class="drag-handle text-secondary flex-shrink-0"
-                         style="cursor:grab; padding: 4px 6px; touch-action: none;">
-                        <i class="bi bi-grip-vertical fs-5"></i>
-                    </div>
+            <!-- Bottone delete nascosto dietro -->
+            <button class="swipe-delete-btn" data-url="{% url 'planned_exercise_remove' pe.pk %}">
+                <i class="bi bi-trash"></i>
+            </button>
 
-                    <!-- Contenuto — occupa tutto lo spazio disponibile, tronca se necessario -->
-                    <div class="flex-grow-1 min-w-0">
-                        <div class="fw-semibold text-truncate">{{ pe.exercise.name }}</div>
-                        <div class="small text-secondary text-truncate">
-                            {{ pe.target_sets }} serie × {{ pe.target_reps }} reps
-                            {% if pe.notes %} · {{ pe.notes }}{% endif %}
+            <!-- Contenuto principale — cliccabile → progress -->
+            <div class="swipe-inner card bg-black border-secondary">
+                <div class="card-body py-2 px-3">
+                    <div class="d-flex align-items-center gap-2">
+
+                        <div class="drag-handle text-secondary flex-shrink-0"
+                            style="cursor:grab; padding: 4px 6px; touch-action: none;">
+                            <i class="bi bi-grip-vertical fs-5"></i>
                         </div>
-                        <small class="text-secondary">{{ pe.exercise.get_muscle_group_display }}</small>
-                    </div>
 
-                    <!-- Azioni — larghezza fissa, non si restringe mai -->
-                    <div class="d-flex gap-1 flex-shrink-0">
-                        <a href="{% url 'log_create' %}?exercise={{ pe.exercise.pk }}&from=plan&plan={{ plan.pk }}"
-                           class="btn btn-warning btn-sm">
-                            <i class="bi bi-plus"></i>
-                        </a>
                         <a href="{% url 'exercise_progress' pe.exercise.pk %}?from=plan&plan={{ plan.pk }}"
-                            class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-graph-up"></i>
+                        class="flex-grow-1 min-w-0 text-decoration-none text-light">
+                            <div class="fw-semibold text-truncate">{{ pe.exercise.name }}</div>
+                            <div class="small text-secondary text-truncate">
+                                {{ pe.target_sets }} serie × {{ pe.target_reps }} reps
+                                {% if pe.notes %} · {{ pe.notes }}{% endif %}
+                            </div>
+                            <small class="text-secondary">{{ pe.exercise.get_muscle_group_display }}</small>
                         </a>
-                        <form method="post" action="{% url 'planned_exercise_remove' pe.pk %}"
-                              onsubmit="return confirm('Rimuovere dalla scheda?')">
-                            {% csrf_token %}
-                            <button class="btn btn-outline-danger btn-sm">
-                                <i class="bi bi-x"></i>
-                            </button>
-                        </form>
-                    </div>
 
+                    </div>
                 </div>
             </div>
+
         </div>
         {% empty %}
         <div class="text-center text-secondary py-4 border border-secondary rounded">
@@ -105,12 +95,31 @@
 {% block extra_js %}
 {% load static %}
 <script src="{% static 'gym/js/dragdrop.js' %}"></script>
+<script src="{% static 'gym/js/swipe.js' %}"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         initDragDrop({
             listId: 'exercise-list',
             reorderUrl: '{% url "plan_reorder" plan.pk %}',
             csrfToken: '{{ csrf_token }}',
+        });
+
+        initSwipeToDelete({
+            listSelector: '.swipe-item .swipe-inner',
+            onDelete: function(item) {
+                const btn = item.closest('.swipe-item').querySelector('.swipe-delete-btn');
+                const url = btn.dataset.url;
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = url;
+                const csrf = document.createElement('input');
+                csrf.type = 'hidden';
+                csrf.name = 'csrfmiddlewaretoken';
+                csrf.value = '{{ csrf_token }}';
+                form.appendChild(csrf);
+                document.body.appendChild(form);
+                form.submit();
+            }
         });
     });
 </script>

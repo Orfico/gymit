@@ -49,9 +49,10 @@ class WorkoutPlan(models.Model):
     description = models.TextField(blank=True, verbose_name='Note')
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True, verbose_name='Attiva')
+    order = models.PositiveIntegerField(default=0, verbose_name='Ordine')
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['order', '-created_at']
         verbose_name = 'Scheda'
         verbose_name_plural = 'Schede'
 

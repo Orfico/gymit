@@ -8,6 +8,7 @@ urlpatterns = [
     # Schede
     path('plans/', views.plan_list, name='plan_list'),
     path('plans/create/', views.plan_create, name='plan_create'),
+    path('plans/reorder/', views.plan_list_reorder, name='plan_list_reorder'),
     path('plans/<int:pk>/', views.plan_detail, name='plan_detail'),
     path('plans/<int:pk>/edit/', views.plan_edit, name='plan_edit'),
     path('plans/<int:pk>/delete/', views.plan_delete, name='plan_delete'),

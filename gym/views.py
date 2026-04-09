@@ -48,10 +48,13 @@ def dashboard(request):
 
 @login_required
 def plan_list(request):
-    plans = WorkoutPlan.objects.filter(user=request.user).annotate(
+    base_qs = WorkoutPlan.objects.filter(user=request.user).annotate(
         exercise_count=Count('planned_exercises')
     )
-    return render(request, 'gym/plan_list.html', {'plans': plans})
+    return render(request, 'gym/plan_list.html', {
+        'active_plans': base_qs.filter(is_active=True),
+        'archived_plans': base_qs.filter(is_active=False),
+    })
 
 
 @login_required
@@ -60,6 +63,9 @@ def plan_create(request):
     if form.is_valid():
         plan = form.save(commit=False)
         plan.user = request.user
+        from django.db.models import Max
+        last_order = WorkoutPlan.objects.filter(user=request.user).aggregate(Max('order'))['order__max']
+        plan.order = (last_order or 0) + 1
         plan.save()
         messages.success(request, f'Scheda "{plan.name}" creata con successo.')
         return redirect('plan_detail', pk=plan.pk)
@@ -95,6 +101,22 @@ def plan_delete(request, pk):
         messages.success(request, f'Scheda "{plan.name}" eliminata.')
         return redirect('plan_list')
     return render(request, 'gym/plan_confirm_delete.html', {'plan': plan})
+
+@login_required
+def plan_list_reorder(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+        ordered_ids = data.get('order', [])
+    except (json.JSONDecodeError, AttributeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    valid_ids = set(WorkoutPlan.objects.filter(user=request.user).values_list('id', flat=True))
+    if set(ordered_ids) != valid_ids:
+        return JsonResponse({'error': 'Invalid plan IDs'}, status=400)
+    for position, plan_id in enumerate(ordered_ids):
+        WorkoutPlan.objects.filter(pk=plan_id, user=request.user).update(order=position)
+    return JsonResponse({'status': 'ok'})
 
 
 # ─── Planned Exercises ────────────────────────────────────────────────────────

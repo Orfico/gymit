@@ -163,3 +163,38 @@ canvas {
 .min-w-0 {
     min-width: 0;
 }
+
+/* Swipe to delete */
+.swipe-item {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+.swipe-inner {
+    position: relative;
+    z-index: 1;
+    background: #111;
+    border-radius: 12px;
+    transform: translateX(0);
+    will-change: transform;
+    cursor: pointer;
+}
+
+.swipe-delete-btn {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 80px;
+    background: #dc3545;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0 12px 12px 0;
+    z-index: 0;
+    cursor: pointer;
+}
