@@ -105,7 +105,7 @@
         });
 
         initSwipeToDelete({
-            listSelector: '.swipe-item .swipe-inner',
+            listSelector: '.swipe-item',
             onDelete: function(item) {
                 const btn = item.closest('.swipe-item').querySelector('.swipe-delete-btn');
                 const url = btn.dataset.url;
