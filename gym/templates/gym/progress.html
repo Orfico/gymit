@@ -73,8 +73,16 @@
         </a>
     </div>
 
-    {% for log in logs %}
-    <div class="card bg-black border-secondary mb-2">
+{% for log in logs %}
+<div class="swipe-item mb-2">
+
+    <!-- Bottone delete nascosto dietro -->
+    <button class="swipe-delete-btn" data-url="{% url 'log_delete' log.pk %}">
+        <i class="bi bi-trash"></i>
+    </button>
+
+    <!-- Contenuto -->
+    <div class="swipe-inner card bg-black border-secondary">
         <div class="card-body py-2 px-3">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
@@ -86,47 +94,43 @@
                     <div class="small text-secondary fst-italic mt-1">{{ log.notes }}</div>
                     {% endif %}
                 </div>
-                <div class="d-flex align-items-center gap-2">
-                    <div class="text-end">
-                        <span class="badge bg-warning text-dark fs-6">{{ log.one_rm|floatformat:2 }}</span>
-                        <div class="small text-secondary">kg 1RM</div>
-                    </div>
-                    <form method="post" action="{% url 'log_delete' log.pk %}"
-                          onsubmit="return confirm('Eliminare questo log?')">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-outline-danger btn-sm">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </form>
+                <div class="text-end">
+                    <span class="badge bg-warning text-dark fs-6">{{ log.one_rm|floatformat:2 }}</span>
+                    <div class="small text-secondary">kg 1RM</div>
                 </div>
             </div>
         </div>
     </div>
-    {% empty %}
-    <div class="text-center text-secondary py-5">
-        <i class="bi bi-clipboard-x fs-1"></i>
-        {% if period != 'all' %}
-        <p class="mt-2">Nessun log nel periodo selezionato.</p>
-        <a href="?period=all" class="btn btn-outline-secondary btn-sm me-2">Vedi tutto lo storico</a>
-        {% else %}
-        <p class="mt-2">Nessun log ancora. Inizia subito!</p>
-        {% endif %}
-        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}" class="btn btn-warning btn-sm">
-            Aggiungi sessione
-        </a>
-    </div>
-    {% endfor %}
 
 </div>
-{% endblock %}
+{% empty %}
 
 {% block extra_js %}
 {% load static %}
 <script src="{% static 'gym/js/progress_chart.js' %}"></script>
+<script src="{% static 'gym/js/swipe.js' %}"></script>
 <script>
     const chartData = {{ chart_data|safe }};
     if (chartData.length > 1) {
         initProgressChart('progressChart', chartData);
     }
+
+    initSwipeToDelete({
+        listSelector: '.swipe-item',
+        onDelete: function(item) {
+            const btn = item.querySelector('.swipe-delete-btn');
+            const url = btn.dataset.url;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = url;
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrfmiddlewaretoken';
+            csrf.value = '{{ csrf_token }}';
+            form.appendChild(csrf);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    });
 </script>
 {% endblock %}
