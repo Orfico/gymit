@@ -391,6 +391,6 @@ def service_worker(request):
         content = ''
     response = HttpResponse(content, content_type='application/javascript')
     response['Service-Worker-Allowed'] = '/'
-    response['Cache-Control'] = 'no-cache'
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
 
