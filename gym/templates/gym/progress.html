@@ -40,7 +40,7 @@
     <!-- Selettore temporale -->
     <div class="d-flex gap-2 mb-3">
         {% for value, label in periods %}
-        <a href="?period={{ value }}"
+        <a href="?period={{ value }}{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}"
            class="btn btn-sm {% if period == value %}btn-warning{% else %}btn-outline-secondary{% endif %} fw-semibold">
             {{ label }}
         </a>
@@ -68,42 +68,54 @@
     <!-- Storico sessioni -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h6 class="text-secondary text-uppercase fw-bold small mb-0">Storico sessioni</h6>
-        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}" class="btn btn-warning btn-sm fw-bold">
+        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}"
+           class="btn btn-warning btn-sm fw-bold">
             <i class="bi bi-plus-lg"></i> Aggiungi
         </a>
     </div>
 
-{% for log in logs %}
-<div class="swipe-item mb-2">
-
-    <!-- Bottone delete nascosto dietro -->
-    <button class="swipe-delete-btn" data-url="{% url 'log_delete' log.pk %}">
-        <i class="bi bi-trash"></i>
-    </button>
-
-    <!-- Contenuto -->
-    <div class="swipe-inner card bg-black border-secondary">
-        <div class="card-body py-2 px-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <div class="fw-semibold">{{ log.date|date:"d M Y" }}</div>
-                    <div class="small text-secondary">
-                        {{ log.sets }} serie &nbsp;×&nbsp; {{ log.reps }} reps &nbsp;@&nbsp; {{ log.weight }} kg
+    {% for log in logs %}
+    <div class="swipe-item mb-2">
+        <button class="swipe-delete-btn" data-url="{% url 'log_delete' log.pk %}">
+            <i class="bi bi-trash"></i>
+        </button>
+        <div class="swipe-inner card bg-black border-secondary">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="fw-semibold">{{ log.date|date:"d M Y" }}</div>
+                        <div class="small text-secondary">
+                            {{ log.sets }} serie &nbsp;×&nbsp; {{ log.reps }} reps &nbsp;@&nbsp; {{ log.weight }} kg
+                        </div>
+                        {% if log.notes %}
+                        <div class="small text-secondary fst-italic mt-1">{{ log.notes }}</div>
+                        {% endif %}
                     </div>
-                    {% if log.notes %}
-                    <div class="small text-secondary fst-italic mt-1">{{ log.notes }}</div>
-                    {% endif %}
-                </div>
-                <div class="text-end">
-                    <span class="badge bg-warning text-dark fs-6">{{ log.one_rm|floatformat:2 }}</span>
-                    <div class="small text-secondary">kg 1RM</div>
+                    <div class="text-end">
+                        <span class="badge bg-warning text-dark fs-6">{{ log.one_rm|floatformat:2 }}</span>
+                        <div class="small text-secondary">kg 1RM</div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+    {% empty %}
+    <div class="text-center text-secondary py-5">
+        <i class="bi bi-clipboard-x fs-1"></i>
+        {% if period != 'all' %}
+        <p class="mt-2">Nessun log nel periodo selezionato.</p>
+        <a href="?period=all{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}"
+           class="btn btn-outline-secondary btn-sm me-2">Vedi tutto lo storico</a>
+        {% else %}
+        <p class="mt-2">Nessun log ancora. Inizia subito!</p>
+        {% endif %}
+        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}{% if request.GET.plan %}&from=plan&plan={{ request.GET.plan }}{% endif %}"
+           class="btn btn-warning btn-sm">Aggiungi sessione</a>
+    </div>
+    {% endfor %}
 
 </div>
-{% empty %}
+{% endblock %}
 
 {% block extra_js %}
 {% load static %}
