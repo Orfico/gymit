@@ -21,8 +21,12 @@
             <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
                 <li><a class="dropdown-item" href="{% url 'plan_edit' plan.pk %}">
                     <i class="bi bi-pencil me-2"></i>Modifica</a></li>
+                <li><a class="dropdown-item" href="{% url 'plan_export' plan.pk %}">
+                    <i class="bi bi-download me-2"></i>Esporta CSV</a></li>
+                <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item text-danger" href="{% url 'plan_delete' plan.pk %}">
                     <i class="bi bi-trash me-2"></i>Elimina</a></li>
+                
             </ul>
         </div>
     </div>

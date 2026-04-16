@@ -1,0 +1,64 @@
+{% extends 'gym/base.html' %}
+{% block title %}Importa scheda — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+    <div class="d-flex align-items-center mb-4 gap-3">
+        <a href="{% url 'plan_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <h5 class="mb-0 fw-bold">Importa scheda</h5>
+    </div>
+
+    <div class="card bg-black border-secondary mb-3">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data" id="importForm">
+                {% csrf_token %}
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">File CSV</label>
+                    <input type="file"
+                           name="csv_file"
+                           accept=".csv"
+                           class="form-control"
+                           id="csvInput"
+                           required>
+                    <div class="form-text text-secondary mt-1">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Usa solo file esportati da GymIt.
+                    </div>
+                </div>
+
+                <!-- Loader — nascosto finché non si invia -->
+                <div id="importLoader" style="display:none;" class="text-center py-3">
+                    <div class="spinner-border text-warning" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-secondary small mt-2">Importazione in corso...</p>
+                </div>
+
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3" id="importBtn">
+                    <i class="bi bi-upload me-2"></i>Importa scheda
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card bg-black border-secondary">
+        <div class="card-body py-2">
+            <small class="text-secondary">
+                <i class="bi bi-info-circle me-1"></i>
+                Se la scheda contiene esercizi non presenti nel tuo account, verranno creati automaticamente.
+            </small>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('importForm').addEventListener('submit', function () {
+        document.getElementById('importBtn').style.display = 'none';
+        document.getElementById('importLoader').style.display = 'block';
+    });
+</script>
+{% endblock %}

@@ -33,6 +33,13 @@ urlpatterns = [
     path('exercises/', views.exercise_list, name='exercise_list'),
     path('exercises/create/', views.exercise_create, name='exercise_create'),
 
+    # Modifica log allenamento
+    path('log/<int:pk>/edit/', views.log_edit, name='log_edit'),
+
+    # Esportazione/Importazione schede
+    path('plans/<int:pk>/export/', views.plan_export, name='plan_export'),
+    path('plans/import/', views.plan_import, name='plan_import'),
+
     # PWA Service Worker (deve stare alla root per avere scope /)
     path('sw.js', views.service_worker, name='service_worker'),
 ]

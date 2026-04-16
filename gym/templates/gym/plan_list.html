@@ -12,9 +12,14 @@
             </small>
             {% endif %}
         </div>
-        <a href="{% url 'plan_create' %}" class="btn btn-warning btn-sm fw-bold">
-            <i class="bi bi-plus-lg"></i> Nuova
-        </a>
+        <div class="d-flex gap-2">
+            <a href="{% url 'plan_import' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-upload"></i>
+            </a>
+            <a href="{% url 'plan_create' %}" class="btn btn-warning btn-sm fw-bold">
+                <i class="bi bi-plus-lg"></i> Nuova
+            </a>
+        </div>
     </div>
 
     <!-- Schede attive — draggable -->

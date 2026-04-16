@@ -5,7 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Max, Count
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 
 from .forms import (
     WorkoutPlanForm,
@@ -13,7 +13,8 @@ from .forms import (
     ExerciseLogForm,
     ExerciseForm,
 )
-from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog
+
+from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -201,6 +202,20 @@ def log_create(request):
             return redirect('plan_detail', pk=plan_pk)
         return redirect('exercise_progress', exercise_id=log.exercise.pk)
     return render(request, 'gym/log_form.html', {'form': form})
+
+@login_required
+def log_edit(request, pk):
+    log = get_object_or_404(ExerciseLog, pk=pk, user=request.user)
+    form = ExerciseLogForm(request.POST or None, instance=log, user=request.user)
+    if form.is_valid():
+        form.save()
+        messages.success(request, f'Log aggiornato — 1RM: {log.one_rm} kg')
+        return redirect('exercise_progress', exercise_id=log.exercise.pk)
+    return render(request, 'gym/log_form.html', {
+        'form': form,
+        'editing': True,
+        'log': log,
+    })
 
 
 @login_required
@@ -393,4 +408,132 @@ def service_worker(request):
     response['Service-Worker-Allowed'] = '/'
     response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
+
+# ─── Import/Export Schede ─────────────────────────────────────────────────
+
+@login_required
+def plan_export(request, pk):
+    """Esporta una scheda come CSV."""
+    import csv
+    plan = get_object_or_404(WorkoutPlan, pk=pk, user=request.user)
+    planned = plan.planned_exercises.select_related('exercise').order_by('order')
+
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="gymit_{plan.name}.csv"'
+    response.write('\ufeff')  # BOM per compatibilità Excel
+
+    writer = csv.writer(response)
+    writer.writerow(['piano', plan.name, plan.description or ''])
+    writer.writerow(['esercizio', 'gruppo_muscolare', 'serie', 'ripetizioni', 'ordine', 'note'])
+    for pe in planned:
+        writer.writerow([
+            pe.exercise.name,
+            pe.exercise.muscle_group,
+            pe.target_sets,
+            pe.target_reps,
+            pe.order,
+            pe.notes or '',
+        ])
+    return response
+
+
+@login_required
+def plan_import(request):
+    """Importa una scheda da CSV."""
+    import csv
+    import io
+
+    if request.method != 'POST':
+        return render(request, 'gym/plan_import.html')
+
+    csv_file = request.FILES.get('csv_file')
+    if not csv_file:
+        messages.error(request, 'Nessun file selezionato.')
+        return render(request, 'gym/plan_import.html')
+
+    if not csv_file.name.endswith('.csv'):
+        messages.error(request, 'Il file deve essere in formato CSV.')
+        return render(request, 'gym/plan_import.html')
+
+    try:
+        content = csv_file.read().decode('utf-8-sig')  # utf-8-sig gestisce il BOM
+        reader = csv.reader(io.StringIO(content))
+        rows = list(reader)
+
+        if len(rows) < 2:
+            messages.error(request, 'Il file CSV è vuoto o non valido.')
+            return render(request, 'gym/plan_import.html')
+
+        # Prima riga: piano, nome, descrizione
+        first_row = rows[0]
+        if len(first_row) < 2 or first_row[0] != 'piano':
+            messages.error(request, 'Formato CSV non valido. Usa un file esportato da GymIt.')
+            return render(request, 'gym/plan_import.html')
+
+        plan_name = first_row[1].strip()
+        plan_description = first_row[2].strip() if len(first_row) > 2 else ''
+
+        # Seconda riga: intestazioni — salta
+        # Righe successive: esercizi
+        exercise_rows = rows[2:]
+        if not exercise_rows:
+            messages.error(request, 'La scheda non contiene esercizi.')
+            return render(request, 'gym/plan_import.html')
+
+        # Crea la scheda
+        from django.db.models import Max as DMax
+        last_order = WorkoutPlan.objects.filter(user=request.user).aggregate(DMax('order'))['order__max']
+        plan = WorkoutPlan.objects.create(
+            user=request.user,
+            name=plan_name,
+            description=plan_description,
+            order=(last_order or 0) + 1,
+        )
+
+        created_exercises = []
+        for i, row in enumerate(exercise_rows, start=1):
+            if len(row) < 4:
+                plan.delete()
+                messages.error(request, f'Riga {i+2} non valida: dati insufficienti.')
+                return render(request, 'gym/plan_import.html')
+
+            ex_name = row[0].strip()
+            ex_muscle = row[1].strip()
+            try:
+                target_sets = int(row[2])
+                target_reps = int(row[3])
+            except ValueError:
+                plan.delete()
+                messages.error(request, f'Riga {i+2}: serie e ripetizioni devono essere numeri interi.')
+                return render(request, 'gym/plan_import.html')
+
+            order = int(row[4]) if len(row) > 4 and row[4].strip().isdigit() else i
+            notes = row[5].strip() if len(row) > 5 else ''
+
+            # Crea l'esercizio se non esiste
+            exercise, was_created = Exercise.objects.get_or_create(
+                name=ex_name,
+                defaults={'muscle_group': ex_muscle or MuscleGroup.FULL_BODY}
+            )
+            if was_created:
+                created_exercises.append(ex_name)
+
+            PlannedExercise.objects.create(
+                plan=plan,
+                exercise=exercise,
+                target_sets=target_sets,
+                target_reps=target_reps,
+                order=order,
+                notes=notes,
+            )
+
+        msg = f'Scheda "{plan_name}" importata con successo.'
+        if created_exercises:
+            msg += f' Esercizi creati automaticamente: {", ".join(created_exercises)}.'
+        messages.success(request, msg)
+        return redirect('plan_detail', pk=plan.pk)
+
+    except Exception as e:
+        messages.error(request, f'Errore durante l\'importazione: {str(e)}')
+        return render(request, 'gym/plan_import.html')
 
