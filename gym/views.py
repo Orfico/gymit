@@ -183,9 +183,21 @@ def log_create(request):
     # Precompila l'esercizio se passato come query param (da dashboard)
     initial = {}
     exercise_id = request.GET.get('exercise')
+    plan_id = request.GET.get('plan')
     if exercise_id:
         initial['exercise'] = exercise_id
     initial['date'] = date.today()
+
+    # Pre-compila serie/ripetizioni dai target della scheda
+    if exercise_id and plan_id and request.GET.get('from') == 'plan':
+        try:
+            pe = PlannedExercise.objects.get(
+                plan_id=plan_id, exercise_id=exercise_id, plan__user=request.user
+            )
+            initial['sets'] = pe.target_sets
+            initial['reps'] = pe.target_reps
+        except PlannedExercise.DoesNotExist:
+            pass
 
     form = ExerciseLogForm(request.POST or None, user=request.user, initial=initial)
     if form.is_valid():
