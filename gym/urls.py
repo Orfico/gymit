@@ -32,6 +32,7 @@ urlpatterns = [
     # Catalogo esercizi
     path('exercises/', views.exercise_list, name='exercise_list'),
     path('exercises/create/', views.exercise_create, name='exercise_create'),
+    path('exercises/<int:pk>/delete/', views.exercise_delete, name='exercise_delete'),
 
     # Modifica log allenamento
     path('log/<int:pk>/edit/', views.log_edit, name='log_edit'),

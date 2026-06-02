@@ -399,6 +399,16 @@ def exercise_create(request):
         return redirect('exercise_list')
     return render(request, 'gym/exercise_form.html', {'form': form})
 
+@login_required
+def exercise_delete(request, pk):
+    exercise = get_object_or_404(Exercise, pk=pk, created_by=request.user)
+    if request.method == 'POST':
+        name = exercise.name
+        exercise.delete()  # CASCADE elimina anche tutti gli ExerciseLog associati
+        messages.success(request, f'"{name}" e tutti i log associati sono stati eliminati.')
+    return redirect('exercise_list')
+
+
 # ─── PWA ──────────────────────────────────────────────────────────────────────
 
 def service_worker(request):

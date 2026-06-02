@@ -30,24 +30,31 @@
     {% for group in grouped %}
     <h6 class="text-secondary text-uppercase fw-bold small mb-2 mt-4">{{ group.grouper }}</h6>
     {% for exercise in group.list %}
-    <div class="card bg-black border-secondary mb-2">
-        <div class="card-body py-2 px-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <div class="fw-semibold">{{ exercise.name }}</div>
-                    {% if exercise.description %}
-                    <div class="small text-secondary">{{ exercise.description|truncatechars:60 }}</div>
-                    {% endif %}
-                </div>
-                <div class="d-flex gap-2">
-                    <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}"
-                       class="btn btn-warning btn-sm">
-                        <i class="bi bi-plus"></i>
-                    </a>
-                    <a href="{% url 'exercise_progress' exercise.pk %}"
-                       class="btn btn-outline-secondary btn-sm">
-                        <i class="bi bi-graph-up"></i>
-                    </a>
+    <div class="swipe-item mb-2">
+        {% if exercise.created_by == request.user %}
+        <button class="swipe-delete-btn" data-url="{% url 'exercise_delete' exercise.pk %}">
+            <i class="bi bi-trash"></i>
+        </button>
+        {% endif %}
+        <div class="swipe-inner card bg-black border-secondary">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="fw-semibold">{{ exercise.name }}</div>
+                        {% if exercise.description %}
+                        <div class="small text-secondary">{{ exercise.description|truncatechars:60 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}"
+                           class="btn btn-warning btn-sm">
+                            <i class="bi bi-plus"></i>
+                        </a>
+                        <a href="{% url 'exercise_progress' exercise.pk %}"
+                           class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-graph-up"></i>
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -61,4 +68,29 @@
     {% endfor %}
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% load static %}
+<script src="{% static 'gym/js/swipe.js' %}"></script>
+<script>
+    initSwipeToDelete({
+        listSelector: '.swipe-item',
+        confirmMessage: 'Eliminando questo esercizio verranno eliminati anche tutti i log associati.\nContinuare?',
+        onDelete: function(item) {
+            const btn = item.querySelector('.swipe-delete-btn');
+            const url = btn.dataset.url;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = url;
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrfmiddlewaretoken';
+            csrf.value = '{{ csrf_token }}';
+            form.appendChild(csrf);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    });
+</script>
 {% endblock %}

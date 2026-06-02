@@ -4,13 +4,13 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.messages.storage.cookie import CookieStorage
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.test import TestCase, Client, RequestFactory
 from django.urls import reverse
 from django.contrib.auth.models import User
 
 from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
-from gym.views import log_create as log_create_view
+from gym.views import log_create as log_create_view, exercise_delete as exercise_delete_view
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -454,6 +454,55 @@ class AutocompleteTest(TestCase):
         self.client.logout()
         r = self.client.get(reverse('exercise_autocomplete') + '?q=pan')
         self.assertIn(r.status_code, [301, 302])
+
+
+# ─── Exercise Delete ──────────────────────────────────────────────────────────
+
+class ExerciseDeleteTest(TestCase):
+    def setUp(self):
+        self.user = make_user('ex_deleter')
+        self.client.login(username='ex_deleter', password='testpass')
+        self.exercise = make_exercise('Squat Delete', MuscleGroup.LEGS)
+        self.exercise.created_by = self.user
+        self.exercise.save()
+
+    def test_delete_removes_exercise(self):
+        self.client.post(reverse('exercise_delete', kwargs={'pk': self.exercise.pk}))
+        self.assertFalse(Exercise.objects.filter(pk=self.exercise.pk).exists())
+
+    def test_delete_also_removes_logs(self):
+        make_log(self.user, self.exercise)
+        make_log(self.user, self.exercise, weight=90)
+        self.client.post(reverse('exercise_delete', kwargs={'pk': self.exercise.pk}))
+        self.assertEqual(ExerciseLog.objects.filter(exercise=self.exercise).count(), 0)
+
+    def test_redirects_to_exercise_list(self):
+        r = self.client.post(reverse('exercise_delete', kwargs={'pk': self.exercise.pk}))
+        self.assertRedirects(r, reverse('exercise_list'), fetch_redirect_response=False)
+
+    def test_other_user_cannot_delete(self):
+        other = make_user('other_ex')
+        factory = RequestFactory()
+        request = factory.post(reverse('exercise_delete', kwargs={'pk': self.exercise.pk}))
+        request.user = other
+        request._messages = CookieStorage(request)
+        with self.assertRaises(Http404):
+            exercise_delete_view(request, pk=self.exercise.pk)
+        self.assertTrue(Exercise.objects.filter(pk=self.exercise.pk).exists())
+
+    def test_unowned_exercise_cannot_be_deleted(self):
+        unowned = make_exercise('Unowned', MuscleGroup.CHEST)
+        factory = RequestFactory()
+        request = factory.post(reverse('exercise_delete', kwargs={'pk': unowned.pk}))
+        request.user = self.user
+        request._messages = CookieStorage(request)
+        with self.assertRaises(Http404):
+            exercise_delete_view(request, pk=unowned.pk)
+        self.assertTrue(Exercise.objects.filter(pk=unowned.pk).exists())
+
+    def test_get_does_not_delete(self):
+        self.client.get(reverse('exercise_delete', kwargs={'pk': self.exercise.pk}))
+        self.assertTrue(Exercise.objects.filter(pk=self.exercise.pk).exists())
 
 
 # ─── Service Worker ───────────────────────────────────────────────────────────

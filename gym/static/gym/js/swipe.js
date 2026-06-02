@@ -3,7 +3,7 @@
  * Swipe a sinistra rivela il tasto Elimina.
  */
 
-function initSwipeToDelete({ listSelector, onDelete }) {
+function initSwipeToDelete({ listSelector, onDelete, confirmMessage = 'Eliminare?' }) {
     const THRESHOLD = 60;
 
     document.querySelectorAll(listSelector).forEach(item => {
@@ -70,7 +70,7 @@ function initSwipeToDelete({ listSelector, onDelete }) {
 
         if (deleteBtn) {
             deleteBtn.addEventListener('click', () => {
-                if (confirm('Rimuovere dalla scheda?')) {
+                if (confirm(confirmMessage)) {
                     onDelete(item);
                 } else {
                     reset();
