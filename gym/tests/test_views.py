@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.contrib.auth.models import User
 
 from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
-from gym.views import log_create as log_create_view
+from gym.views import log_create as log_create_view, dashboard as dashboard_view
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -55,15 +55,49 @@ class AuthRequiredTest(TestCase):
 class DashboardTest(TestCase):
     def setUp(self):
         self.user = make_user('dash')
-        self.client.login(username='dash', password='testpass')
+        self.factory = RequestFactory()
+
+    def _ctx(self):
+        request = self.factory.get(reverse('dashboard'))
+        request.user = self.user
+        request._messages = CookieStorage(request)
+        ctx = {}
+        with patch('gym.views.render', side_effect=lambda _r, _t, c, **_k: (ctx.update(c) or HttpResponse(''))):
+            dashboard_view(request)
+        return ctx
 
     def test_loads(self):
-        r = self.client.get(reverse('dashboard'))
-        self.assertEqual(r.status_code, 200)
+        ctx = self._ctx()
+        self.assertIn('muscle_groups', ctx)
 
     def test_empty_state(self):
-        r = self.client.get(reverse('dashboard'))
-        self.assertContains(r, 'Aggiungi primo log')
+        self.assertEqual(self._ctx()['muscle_groups'], [])
+
+    def test_muscle_group_shown_with_two_logs(self):
+        ex = make_exercise('Panca DB', MuscleGroup.CHEST)
+        make_log(self.user, ex, weight=80)
+        make_log(self.user, ex, weight=90)
+        ctx = self._ctx()
+        keys = [mg['key'] for mg in ctx['muscle_groups']]
+        self.assertIn('chest', keys)
+
+    def test_muscle_group_hidden_with_one_log(self):
+        ex = make_exercise('Curl Manubrio', MuscleGroup.BICEPS)
+        make_log(self.user, ex)
+        keys = [mg['key'] for mg in self._ctx()['muscle_groups']]
+        self.assertNotIn('biceps', keys)
+
+    def test_muscle_groups_ordered_by_total_logs(self):
+        ex_chest = make_exercise('Panca Ord', MuscleGroup.CHEST)
+        ex_legs = make_exercise('Squat Ord', MuscleGroup.LEGS)
+        make_log(self.user, ex_chest, weight=80)
+        make_log(self.user, ex_chest, weight=85)
+        make_log(self.user, ex_legs, weight=100)
+        make_log(self.user, ex_legs, weight=105)
+        make_log(self.user, ex_legs, weight=110)
+        keys = [mg['key'] for mg in self._ctx()['muscle_groups']]
+        self.assertEqual(keys[0], 'legs')
+        self.assertEqual(keys[1], 'chest')
 
 
 # ─── Log CRUD ─────────────────────────────────────────────────────────────────

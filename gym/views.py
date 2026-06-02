@@ -21,27 +21,67 @@ from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleG
 
 @login_required
 def dashboard(request):
-    """Home: ultimi log e scheda attiva."""
-    recent_logs = (
+    """Dashboard aggregata per gruppo muscolare con sparkline 1RM."""
+    import json
+    from collections import defaultdict
+    from .models import MuscleGroup
+
+    # Tutti i log dell'utente in ordine cronologico per esercizio.
+    # order_by esplicito: il default del modello è per data desc e
+    # creerebbe liste invertite nel defaultdict.
+    all_logs = (
         ExerciseLog.objects
         .filter(user=request.user)
-        .select_related('exercise')[:10]
+        .select_related('exercise')
+        .order_by('exercise_id', 'date', 'id')
     )
-    active_plan = (
-        WorkoutPlan.objects
-        .filter(user=request.user, is_active=True)
-        .prefetch_related('planned_exercises__exercise')
-        .first()
-    )
-    # Numero esercizi loggati oggi
-    logged_today = ExerciseLog.objects.filter(
-        user=request.user, date=date.today()
-    ).count()
+
+    # Raggruppa log per esercizio (mantiene l'ordine cronologico)
+    exercise_logs = defaultdict(list)
+    for log in all_logs:
+        exercise_logs[log.exercise].append(log)
+
+    # Aggrega per gruppo muscolare, escludendo esercizi con <2 log
+    mg_exercises = defaultdict(list)
+    for exercise, logs in exercise_logs.items():
+        if len(logs) < 2:
+            continue
+        first_1rm = float(logs[0].one_rm)
+        last_1rm = float(logs[-1].one_rm)
+        variation_pct = round(
+            ((last_1rm - first_1rm) / first_1rm * 100) if first_1rm else 0.0, 1
+        )
+        chart_data = json.dumps([
+            {'date': log.date.strftime('%d/%m'), 'one_rm': float(log.one_rm)}
+            for log in logs
+        ])
+        mg_exercises[exercise.muscle_group].append({
+            'exercise': exercise,
+            'last_one_rm': last_1rm,
+            'variation_pct': variation_pct,
+            'chart_data': chart_data,
+            'log_count': len(logs),
+        })
+
+    mg_display = dict(MuscleGroup.choices)
+    muscle_groups = []
+    for mg_key, exercises in mg_exercises.items():
+        exercises.sort(key=lambda x: x['last_one_rm'], reverse=True)
+        avg_variation = round(
+            sum(e['variation_pct'] for e in exercises) / len(exercises), 1
+        )
+        muscle_groups.append({
+            'name': mg_display.get(mg_key, mg_key),
+            'key': mg_key,
+            'avg_variation': avg_variation,
+            'exercises': exercises,
+            'total_logs': sum(e['log_count'] for e in exercises),
+        })
+
+    muscle_groups.sort(key=lambda x: x['total_logs'], reverse=True)
 
     return render(request, 'gym/dashboard.html', {
-        'recent_logs': recent_logs,
-        'active_plan': active_plan,
-        'logged_today': logged_today,
+        'muscle_groups': muscle_groups,
     })
 
 
