@@ -247,7 +247,7 @@ def exercise_progress(request, exercise_id):
     """
     Visualizza lo storico del 1RM per un esercizio con filtro temporale.
     Il best 1RM è sempre calcolato sull'intero storico (all-time).
-    Default: ultimi 365 giorni.
+    Default: tutto lo storico.
     """
     from datetime import timedelta
 
@@ -268,9 +268,9 @@ def exercise_progress(request, exercise_id):
 
     # ── Filtro temporale ──────────────────────────────────────────
     PERIODS = {'3m': 90, '6m': 180, '1y': 365, 'all': None}
-    period = request.GET.get('period', '1y')
+    period = request.GET.get('period', 'all')
     if period not in PERIODS:
-        period = '1y'
+        period = 'all'
 
     days = PERIODS[period]
     if days is not None:
