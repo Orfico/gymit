@@ -31,11 +31,9 @@
     <h6 class="text-secondary text-uppercase fw-bold small mb-2 mt-4">{{ group.grouper }}</h6>
     {% for exercise in group.list %}
     <div class="swipe-item mb-2">
-        {% if exercise.created_by == request.user %}
         <button class="swipe-delete-btn" data-url="{% url 'exercise_delete' exercise.pk %}">
             <i class="bi bi-trash"></i>
         </button>
-        {% endif %}
         <div class="swipe-inner card bg-black border-secondary">
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center">

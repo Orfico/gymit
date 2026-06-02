@@ -401,7 +401,7 @@ def exercise_create(request):
 
 @login_required
 def exercise_delete(request, pk):
-    exercise = get_object_or_404(Exercise, pk=pk, created_by=request.user)
+    exercise = get_object_or_404(Exercise, pk=pk)
     if request.method == 'POST':
         name = exercise.name
         exercise.delete()  # CASCADE elimina anche tutti gli ExerciseLog associati
