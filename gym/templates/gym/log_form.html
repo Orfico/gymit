@@ -70,7 +70,7 @@
                     {{ form.notes }}
                 </div>
 
-                <button type="submit" class="btn btn-warning w-100 fw-bold py-3">
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3" data-loading-text="{% if editing %}Aggiornamento...{% else %}Salvataggio...{% endif %}">
                     <i class="bi bi-check-lg me-2"></i>{% if editing %}Aggiorna sessione{% else %}Salva sessione{% endif %}
                 </button>
             </form>

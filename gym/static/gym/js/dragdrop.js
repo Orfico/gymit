@@ -11,6 +11,15 @@ function initDragDrop({ listId, reorderUrl, csrfToken }) {
     const list = document.getElementById(listId);
     if (!list) return;
 
+    // ── Indicatore di salvataggio ordine ────────────────────────────
+    const savingIndicator = document.createElement('div');
+    savingIndicator.className = 'saving-indicator mb-2';
+    savingIndicator.innerHTML = `
+        <span class="spinner-border spinner-border-sm text-warning" role="status" aria-hidden="true"></span>
+        <span>Salvataggio ordine...</span>
+    `;
+    list.insertAdjacentElement('beforebegin', savingIndicator);
+
     // ── Stato condiviso ───────────────────────────────────────────
     let dragged = null;         // elemento che si sta trascinando
     let placeholder = null;     // segnaposto visivo durante il drag
@@ -57,6 +66,7 @@ function initDragDrop({ listId, reorderUrl, csrfToken }) {
 
     async function saveOrder() {
         const ids = getItems().map(el => parseInt(el.dataset.id));
+        savingIndicator.classList.add('active');
         try {
             const res = await fetch(reorderUrl, {
                 method: 'POST',
@@ -69,6 +79,8 @@ function initDragDrop({ listId, reorderUrl, csrfToken }) {
             if (!res.ok) console.error('Reorder failed', await res.text());
         } catch (e) {
             console.error('Reorder error', e);
+        } finally {
+            savingIndicator.classList.remove('active');
         }
     }
 

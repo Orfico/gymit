@@ -87,6 +87,7 @@
             csrf.value = '{{ csrf_token }}';
             form.appendChild(csrf);
             document.body.appendChild(form);
+            showPageLoader('Eliminazione in corso...');
             form.submit();
         }
     });

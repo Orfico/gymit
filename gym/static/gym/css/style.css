@@ -198,3 +198,36 @@ canvas {
     z-index: 0;
     cursor: pointer;
 }
+
+/* Loading states */
+.page-loader-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 13, 13, 0.85);
+    backdrop-filter: blur(1px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.inline-spinner {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    transform: translateY(-50%);
+    display: none;
+    color: var(--gymit-yellow);
+}
+
+.saving-indicator {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    color: #aaa;
+    font-size: 12px;
+}
+
+.saving-indicator.active {
+    display: flex;
+}

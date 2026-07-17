@@ -43,7 +43,7 @@
                     <li>
                         <form method="post" action="{% url 'logout' %}">
                             {% csrf_token %}
-                            <button type="submit" class="dropdown-item text-danger">
+                            <button type="submit" class="dropdown-item text-danger" data-loading-text="Uscita...">
                                 <i class="bi bi-box-arrow-right me-2"></i>Esci
                             </button>
                         </form>

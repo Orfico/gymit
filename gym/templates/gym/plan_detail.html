@@ -122,6 +122,7 @@
                 csrf.value = '{{ csrf_token }}';
                 form.appendChild(csrf);
                 document.body.appendChild(form);
+                showPageLoader('Rimozione in corso...');
                 form.submit();
             }
         });
