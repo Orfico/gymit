@@ -1,11 +1,12 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Max, Count
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
+from django.utils import timezone
 
 from .forms import (
     WorkoutPlanForm,
@@ -80,8 +81,26 @@ def dashboard(request):
 
     muscle_groups.sort(key=lambda x: x['total_logs'], reverse=True)
 
+    week_start = date.today() - timedelta(days=date.today().weekday())
+    sessions_this_week = all_logs.filter(date__gte=week_start).count()
+    active_plans_count = WorkoutPlan.objects.filter(user=request.user, is_active=True).count()
+
+    hour = timezone.localtime().hour
+    if hour < 6:
+        greeting = 'Buonanotte'
+    elif hour < 12:
+        greeting = 'Buongiorno'
+    elif hour < 18:
+        greeting = 'Buon pomeriggio'
+    else:
+        greeting = 'Buonasera'
+
     return render(request, 'gym/dashboard.html', {
         'muscle_groups': muscle_groups,
+        'sessions_this_week': sessions_this_week,
+        'exercises_tracked': len(exercise_logs),
+        'active_plans_count': active_plans_count,
+        'greeting': greeting,
     })
 
 

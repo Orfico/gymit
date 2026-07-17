@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -98,6 +98,29 @@ class DashboardTest(TestCase):
         keys = [mg['key'] for mg in self._ctx()['muscle_groups']]
         self.assertEqual(keys[0], 'legs')
         self.assertEqual(keys[1], 'chest')
+
+    def test_stats_keys_present(self):
+        ctx = self._ctx()
+        for key in ('sessions_this_week', 'exercises_tracked', 'active_plans_count', 'greeting'):
+            self.assertIn(key, ctx)
+
+    def test_sessions_this_week_counts_only_current_week(self):
+        ex = make_exercise('Stacco', MuscleGroup.BACK)
+        make_log(self.user, ex, log_date=date.today())
+        make_log(self.user, ex, log_date=date.today() - timedelta(weeks=2))
+        self.assertEqual(self._ctx()['sessions_this_week'], 1)
+
+    def test_exercises_tracked_counts_distinct_exercises_with_logs(self):
+        ex_a = make_exercise('Panca Tracked', MuscleGroup.CHEST)
+        ex_b = make_exercise('Curl Tracked', MuscleGroup.BICEPS)
+        make_log(self.user, ex_a)
+        make_log(self.user, ex_b)
+        self.assertEqual(self._ctx()['exercises_tracked'], 2)
+
+    def test_active_plans_count_excludes_archived(self):
+        make_plan(self.user, name='Attiva', is_active=True)
+        make_plan(self.user, name='Archiviata', is_active=False)
+        self.assertEqual(self._ctx()['active_plans_count'], 1)
 
 
 # ─── Log CRUD ─────────────────────────────────────────────────────────────────

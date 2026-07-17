@@ -199,6 +199,67 @@ canvas {
     cursor: pointer;
 }
 
+/* Dashboard — stat tiles */
+.stat-tile {
+    border-radius: 14px;
+}
+
+.stat-tile i {
+    color: var(--gymit-yellow);
+    font-size: 1.1rem;
+}
+
+.stat-tile-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-top: 4px;
+}
+
+.stat-tile-label {
+    color: #aaa;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    margin-top: 2px;
+}
+
+/* Dashboard — gruppo muscolare */
+.muscle-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(255, 193, 7, 0.12);
+    color: var(--gymit-yellow);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.hover-row {
+    transition: background-color 0.15s ease;
+}
+
+.hover-row:hover,
+.hover-row:active {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Dashboard — empty state */
+.empty-state-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: rgba(255, 193, 7, 0.1);
+    color: var(--gymit-yellow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+}
+
 /* Loading states */
 .page-loader-overlay {
     position: fixed;
