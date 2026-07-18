@@ -513,6 +513,57 @@ class AutocompleteTest(TestCase):
         self.assertIn(r.status_code, [301, 302])
 
 
+# ─── Exercise Edit ────────────────────────────────────────────────────────────
+
+class ExerciseEditTest(TestCase):
+    def setUp(self):
+        self.user = make_user('ex_editor')
+        self.client.login(username='ex_editor', password='testpass')
+        self.exercise = make_exercise('Squat Originale', MuscleGroup.LEGS)
+
+    def _post(self, **kwargs):
+        data = {'name': 'Squat Originale', 'muscle_group': MuscleGroup.LEGS, 'description': ''}
+        data.update(kwargs)
+        return self.client.post(reverse('exercise_edit', kwargs={'pk': self.exercise.pk}), data)
+
+    def test_updates_name(self):
+        self._post(name='Squat Bulgaro')
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.name, 'Squat Bulgaro')
+
+    def test_updates_muscle_group(self):
+        self._post(muscle_group=MuscleGroup.GLUTES)
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.muscle_group, MuscleGroup.GLUTES)
+
+    def test_edit_predefined_exercise(self):
+        predefined = make_exercise('Predefined Edit', MuscleGroup.CHEST)
+        self.client.post(reverse('exercise_edit', kwargs={'pk': predefined.pk}), {
+            'name': 'Predefined Edit Renamed', 'muscle_group': MuscleGroup.CHEST, 'description': '',
+        })
+        predefined.refresh_from_db()
+        self.assertEqual(predefined.name, 'Predefined Edit Renamed')
+
+    def test_redirects_to_exercise_list_on_success(self):
+        r = self._post(name='Squat Redirect')
+        self.assertRedirects(r, reverse('exercise_list'), fetch_redirect_response=False)
+
+    def test_rejects_duplicate_name(self):
+        make_exercise('Panca Esistente', MuscleGroup.CHEST)
+        self._post(name='Panca Esistente')
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.name, 'Squat Originale')
+
+    def test_get_shows_form_with_existing_data(self):
+        r = self.client.get(reverse('exercise_edit', kwargs={'pk': self.exercise.pk}))
+        self.assertContains(r, 'Squat Originale')
+
+    def test_requires_login(self):
+        self.client.logout()
+        r = self.client.get(reverse('exercise_edit', kwargs={'pk': self.exercise.pk}))
+        self.assertIn(r.status_code, [301, 302])
+
+
 # ─── Exercise Delete ──────────────────────────────────────────────────────────
 
 class ExerciseDeleteTest(TestCase):

@@ -1,5 +1,5 @@
 {% extends 'gym/base.html' %}
-{% block title %}Nuovo esercizio — GymIt{% endblock %}
+{% block title %}{{ action }} esercizio — GymIt{% endblock %}
 
 {% block content %}
 <div class="pt-3">
@@ -7,7 +7,7 @@
         <a href="{% url 'exercise_list' %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left"></i>
         </a>
-        <h5 class="mb-0 fw-bold">Nuovo esercizio</h5>
+        <h5 class="mb-0 fw-bold">{{ action }} esercizio</h5>
     </div>
 
     <div class="card bg-black border-secondary">
@@ -23,8 +23,9 @@
                     {% endif %}
                 </div>
                 {% endfor %}
-                <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2" data-loading-text="Creazione...">
-                    Crea esercizio
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2"
+                        data-loading-text="{% if exercise %}Salvataggio...{% else %}Creazione...{% endif %}">
+                    {% if exercise %}Salva modifiche{% else %}Crea esercizio{% endif %}
                 </button>
             </form>
         </div>

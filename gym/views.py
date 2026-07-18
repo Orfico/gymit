@@ -456,7 +456,17 @@ def exercise_create(request):
         exercise.save()
         messages.success(request, f'Esercizio "{exercise.name}" aggiunto.')
         return redirect('exercise_list')
-    return render(request, 'gym/exercise_form.html', {'form': form})
+    return render(request, 'gym/exercise_form.html', {'form': form, 'action': 'Crea'})
+
+@login_required
+def exercise_edit(request, pk):
+    exercise = get_object_or_404(Exercise, pk=pk)
+    form = ExerciseForm(request.POST or None, instance=exercise)
+    if form.is_valid():
+        form.save()
+        messages.success(request, f'Esercizio "{exercise.name}" aggiornato.')
+        return redirect('exercise_list')
+    return render(request, 'gym/exercise_form.html', {'form': form, 'action': 'Modifica', 'exercise': exercise})
 
 @login_required
 def exercise_delete(request, pk):
