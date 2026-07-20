@@ -14,6 +14,13 @@
  * vibrare il telefono esattamente allo scadere. Vibrazione/beep/pulse
  * partono non appena la pagina torna visibile, con il countdown già
  * corretto.
+ *
+ * Allo scadere il timer entra in stato "finished" e resta lì — niente
+ * timeout automatico: suono e vibrazione continuano a ripetersi finché
+ * l'utente non tocca il FAB per interromperli (nessun bisogno di aprire
+ * il pannello). Lo stato "finished" persiste anche attraverso la
+ * navigazione tra pagine, quindi l'allarme riprende a suonare se non è
+ * ancora stato interrotto.
  */
 
 (function () {
@@ -22,8 +29,8 @@
     var DEFAULT_DURATION = 90;
     var MIN_DURATION = 5;
     var MAX_DURATION = 900;
-    var FINISHED_FLASH_MS = 3000;
     var TICK_MS = 250;
+    var ALARM_REPEAT_MS = 1100;
 
     var widget = document.getElementById('restTimerWidget');
     if (!widget) return; // utente non autenticato: il markup non esiste in questa pagina
@@ -43,9 +50,12 @@
     var state = null;
     var audioCtx = null;
     var tickHandle = null;
+    var alarmIntervalId = null;
 
-    // ── Audio beep (fallback/complemento alla vibrazione — su iOS
-    // navigator.vibrate non esiste affatto) ─────────────────────────
+    // ── Audio allarme (fallback/complemento alla vibrazione — su iOS
+    // navigator.vibrate non esiste affatto). Onda quadra + guadagno alto:
+    // più penetrante di un sine, per farsi notare anche in un ambiente
+    // rumoroso come una palestra. Si ripete finché non viene interrotto.
     function unlockAudio() {
         if (audioCtx) return;
         var Ctx = window.AudioContext || window.webkitAudioContext;
@@ -53,30 +63,44 @@
         try { audioCtx = new Ctx(); } catch (e) { /* ignore */ }
     }
 
-    function beep(delayMs, freq) {
-        if (!audioCtx) return;
-        if (audioCtx.state === 'suspended') audioCtx.resume().catch(function () {});
-        setTimeout(function () {
-            try {
-                var osc = audioCtx.createOscillator();
-                var gain = audioCtx.createGain();
-                osc.type = 'sine';
-                osc.frequency.value = freq || 880;
-                var now = audioCtx.currentTime;
-                gain.gain.setValueAtTime(0.0001, now);
-                gain.gain.exponentialRampToValueAtTime(0.3, now + 0.02);
-                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
-                osc.connect(gain).connect(audioCtx.destination);
-                osc.start(now);
-                osc.stop(now + 0.55);
-            } catch (e) { /* AudioContext non disponibile/bloccato */ }
-        }, delayMs || 0);
+    function tone(startAt, freq) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.55, startAt + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.32);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(startAt);
+        osc.stop(startAt + 0.34);
     }
 
-    function notifyFinished() {
-        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* ignore */ }
-        beep(0, 880);
-        beep(300, 880);
+    function playAlarmBurst() {
+        if (!audioCtx) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(function () {});
+        try {
+            var now = audioCtx.currentTime;
+            tone(now, 988); // B5
+            tone(now + 0.38, 1318); // E6 — coppia di toni tipo sveglia da cucina
+        } catch (e) { /* AudioContext non disponibile/bloccato */ }
+    }
+
+    function startAlarmLoop() {
+        if (alarmIntervalId) return; // già in corso
+        var fire = function () {
+            try { if (navigator.vibrate) navigator.vibrate([300, 100, 300]); } catch (e) { /* ignore */ }
+            playAlarmBurst();
+        };
+        fire();
+        alarmIntervalId = setInterval(fire, ALARM_REPEAT_MS);
+    }
+
+    function stopAlarm() {
+        if (!alarmIntervalId) return;
+        clearInterval(alarmIntervalId);
+        alarmIntervalId = null;
+        try { if (navigator.vibrate) navigator.vibrate(0); } catch (e) { /* ignore */ }
     }
 
     // Sblocca l'AudioContext al primo gesto utente su QUALSIASI parte
@@ -103,7 +127,7 @@
             } catch (e) { /* stato corrotto: ignora e ricrea */ }
         }
         var d = defaultDuration();
-        return { duration: d, remaining: d, status: 'idle', endAt: null, finishedAt: null, notified: false };
+        return { duration: d, remaining: d, status: 'idle', endAt: null, finishedAt: null };
     }
 
     function saveState() {
@@ -124,6 +148,7 @@
 
     // ── Transizioni ───────────────────────────────────────────────
     function start(seconds) {
+        stopAlarm();
         if (typeof seconds === 'number') {
             state.duration = seconds;
             rememberDuration(seconds);
@@ -132,7 +157,6 @@
         state.status = 'running';
         state.endAt = Date.now() + startFrom * 1000;
         state.finishedAt = null;
-        state.notified = false;
         saveState();
         render();
     }
@@ -147,11 +171,11 @@
     }
 
     function reset() {
+        stopAlarm();
         state.status = 'idle';
         state.remaining = state.duration;
         state.endAt = null;
         state.finishedAt = null;
-        state.notified = false;
         saveState();
         render();
     }
@@ -169,12 +193,16 @@
         state.remaining = 0;
         state.endAt = null;
         state.finishedAt = Date.now();
-        if (!state.notified) {
-            state.notified = true;
-            notifyFinished();
-        }
         saveState();
         render();
+        startAlarmLoop();
+    }
+
+    // L'utente interrompe l'allarme toccando il FAB — non serve aprire
+    // il pannello. Torna direttamente a idle, pronto per un nuovo giro.
+    function dismissFinished() {
+        stopAlarm();
+        reset();
     }
 
     // ── Rendering ─────────────────────────────────────────────────
@@ -211,23 +239,19 @@
             btn.classList.toggle('active', seconds === state.duration);
         });
 
-        fab.setAttribute('aria-label', active || finished
-            ? 'Timer di recupero, ' + Math.ceil(remaining) + ' secondi rimanenti'
-            : 'Timer di recupero');
+        var label = 'Timer di recupero';
+        if (finished) label = 'Timer di recupero terminato, tocca per interrompere l\'allarme';
+        else if (active) label = 'Timer di recupero, ' + Math.ceil(remaining) + ' secondi rimanenti';
+        fab.setAttribute('aria-label', label);
     }
 
     // ── Ciclo di aggiornamento ──────────────────────────────────────
     function tick() {
-        if (state.status === 'running') {
-            if (computeRemaining() <= 0) {
-                finish();
-                return;
-            }
+        if (state.status !== 'running') return;
+        if (computeRemaining() <= 0) {
+            finish();
+        } else {
             render();
-        } else if (state.status === 'finished') {
-            if (Date.now() - state.finishedAt >= FINISHED_FLASH_MS) {
-                reset();
-            }
         }
     }
 
@@ -259,6 +283,10 @@
 
     fab.addEventListener('click', function () {
         unlockAudio();
+        if (state.status === 'finished') {
+            dismissFinished();
+            return;
+        }
         if (panel.hidden) openPanel();
         else closePanel();
     });
@@ -302,12 +330,15 @@
 
     // ── Init ──────────────────────────────────────────────────────
     state = loadState();
-    // Se lo stato salvato indica un countdown già scaduto (es. la pagina
-    // è stata ricaricata a timer terminato) risolviamolo subito.
     if (state.status === 'running' && computeRemaining() <= 0) {
+        // Countdown già scaduto (es. la pagina è stata ricaricata a timer
+        // terminato): passa subito a "finished" e fai partire l'allarme.
         finish();
-    } else if (state.status === 'finished' && Date.now() - state.finishedAt >= FINISHED_FLASH_MS) {
-        reset();
+    } else if (state.status === 'finished') {
+        // L'allarme non è ancora stato interrotto dall'utente: riprende
+        // a suonare anche su questa pagina.
+        render();
+        startAlarmLoop();
     } else {
         render();
     }
