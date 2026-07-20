@@ -292,3 +292,197 @@ canvas {
 .saving-indicator.active {
     display: flex;
 }
+
+/* Timer di recupero — widget floating */
+.rest-timer-widget {
+    position: fixed;
+    right: 16px;
+    bottom: 80px;
+    z-index: 1040;
+}
+
+@media (min-width: 768px) {
+    .rest-timer-widget {
+        bottom: 24px;
+    }
+}
+
+.rest-timer-fab {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--gymit-yellow);
+    color: #000;
+    border: none;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+}
+
+.rest-timer-fab-ring {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: conic-gradient(var(--gymit-yellow) calc(var(--ring, 1) * 360deg), rgba(255, 255, 255, 0.15) 0deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+    display: none;
+}
+
+.rest-timer-widget.is-active .rest-timer-fab-ring,
+.rest-timer-widget.is-finished .rest-timer-fab-ring {
+    display: block;
+}
+
+.rest-timer-widget.is-finished .rest-timer-fab-ring {
+    background: conic-gradient(#dc3545 360deg, #dc3545 0deg);
+}
+
+.rest-timer-fab-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rest-timer-fab-content i {
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.rest-timer-fab-seconds {
+    display: none;
+    font-weight: 700;
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.rest-timer-widget.is-active .rest-timer-fab-content i,
+.rest-timer-widget.is-finished .rest-timer-fab-content i {
+    display: none;
+}
+
+.rest-timer-widget.is-active .rest-timer-fab-seconds,
+.rest-timer-widget.is-finished .rest-timer-fab-seconds {
+    display: block;
+}
+
+.rest-timer-widget.is-finished .rest-timer-fab {
+    animation: rest-timer-pulse 0.6s ease-in-out infinite;
+    background: #dc3545;
+    color: #fff;
+}
+
+@keyframes rest-timer-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+}
+
+.rest-timer-panel {
+    position: absolute;
+    right: 0;
+    bottom: 68px;
+    width: 300px;
+    max-width: calc(100vw - 32px);
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 16px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.rest-timer-panel[hidden] {
+    display: none;
+}
+
+.rest-timer-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #aaa;
+}
+
+.rest-timer-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    padding: 4px;
+    line-height: 1;
+}
+
+.rest-timer-close:hover {
+    color: #fff;
+}
+
+.rest-timer-display {
+    font-size: 2.5rem;
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.rest-timer-widget.is-finished .rest-timer-display {
+    color: #dc3545;
+}
+
+.rest-timer-progress {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.rest-timer-progress-bar {
+    height: 100%;
+    width: 100%;
+    background: var(--gymit-yellow);
+    border-radius: 999px;
+    transition: width 0.2s linear;
+}
+
+.rest-timer-widget.is-finished .rest-timer-progress-bar {
+    background: #dc3545;
+}
+
+.rest-timer-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.rest-timer-preset {
+    background: #222;
+    border: 1px solid #333;
+    color: #ccc;
+    border-radius: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.rest-timer-preset.active {
+    background: rgba(255, 193, 7, 0.15);
+    border-color: var(--gymit-yellow);
+    color: var(--gymit-yellow);
+}
+
+.rest-timer-custom {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.rest-timer-custom input {
+    width: 80px;
+}
+
+.rest-timer-controls {
+    display: flex;
+    gap: 8px;
+}
