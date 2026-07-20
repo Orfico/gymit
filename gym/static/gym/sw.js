@@ -9,7 +9,7 @@
  * Incrementa CACHE_VERSION ad ogni deploy per invalidare la cache.
  */
 
-const CACHE_VERSION = 'gymit-v3';
+const CACHE_VERSION = 'gymit-v4';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE  = `${CACHE_VERSION}-pages`;
 
@@ -87,6 +87,23 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(networkFirstWithCache(request, PAGES_CACHE));
         return;
     }
+});
+
+// ── Notifiche — timer di recupero ───────────────────────────────────────────
+// Il tap sulla notifica di fine timer riporta l'utente sulla tab di GymIt
+// già aperta (o ne apre una nuova). Il timer stesso resta gestito dalla
+// pagina (stato in sessionStorage): qui serve solo a portare l'app in primo
+// piano, dove l'utente può toccare il FAB per interrompere l'allarme.
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    event.waitUntil(
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+            for (const client of clientList) {
+                if ('focus' in client) return client.focus();
+            }
+            if (self.clients.openWindow) return self.clients.openWindow('/');
+        })
+    );
 });
 
 // ── Strategie ─────────────────────────────────────────────────────────────────

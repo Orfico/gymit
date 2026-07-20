@@ -9,11 +9,17 @@
  * stato in background/il telefono in standby e i tick sono stati
  * sospesi dal browser nel frattempo.
  *
- * Limite di piattaforma: mentre lo schermo è bloccato o il tab non è
- * visibile, i browser sospendono l'esecuzione JS — non è possibile far
- * vibrare il telefono esattamente allo scadere. Vibrazione/beep/pulse
- * partono non appena la pagina torna visibile, con il countdown già
- * corretto.
+ * Limite di piattaforma: il beep (Web Audio) e la vibrazione diretta
+ * funzionano solo se la pagina che rileva lo scadere è quella attiva/in
+ * primo piano — i browser sospendono JS/audio quando il tab non è
+ * visibile o lo schermo è bloccato. Per coprire anche il caso "l'utente
+ * ha navigato su un'altra pagina del sito" viene anche mostrata una
+ * notifica di sistema via Service Worker (richiede il permesso
+ * "Notifiche", chiesto alla prima partenza del timer): il suono/la
+ * vibrazione a quel punto li gestisce l'OS, non serve che la pagina sia
+ * in primo piano. Resta un limite intrinseco per lo standby prolungato
+ * dello schermo o il browser chiuso del tutto — richiederebbe le Push
+ * notification lato server, fuori scope qui (nessuna modifica backend).
  *
  * Allo scadere il timer entra in stato "finished" e resta lì — niente
  * timeout automatico: suono e vibrazione continuano a ripetersi finché
@@ -97,6 +103,7 @@
     }
 
     function stopAlarm() {
+        closeServiceWorkerNotification();
         if (!alarmIntervalId) return;
         clearInterval(alarmIntervalId);
         alarmIntervalId = null;
@@ -110,6 +117,47 @@
     ['pointerdown', 'keydown'].forEach(function (evt) {
         document.addEventListener(evt, unlockAudio, { once: true, passive: true });
     });
+
+    // ── Notifica di sistema ──────────────────────────────────────────
+    // Il beep/vibrazione in pagina funzionano solo se QUESTA tab è quella
+    // attiva/in primo piano quando il timer scade — un limite di
+    // piattaforma dei browser (autoplay/JS in background sono sospesi).
+    // La notifica di sistema (via Service Worker) copre anche i casi in
+    // cui l'utente ha navigato su un'altra pagina del sito o è passato ad
+    // un'altra app: il suono/vibrazione a quel punto li gestisce l'OS, non
+    // la pagina. Richiede il permesso "Notifiche", chiesto alla prima
+    // partenza reale del timer.
+    function ensureNotificationPermission() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'default') {
+            Notification.requestPermission().catch(function () { /* ignore */ });
+        }
+    }
+
+    function notifyViaServiceWorker() {
+        if (!('serviceWorker' in navigator) || !('Notification' in window)) return;
+        if (Notification.permission !== 'granted') return;
+        navigator.serviceWorker.ready.then(function (reg) {
+            reg.showNotification('Timer di recupero terminato', {
+                body: 'Tocca per tornare a GymIt',
+                icon: '/static/gym/icons/icon-192.png',
+                badge: '/static/gym/icons/icon-192.png',
+                tag: 'gymit-rest-timer',
+                renotify: true,
+                requireInteraction: true,
+                vibrate: [300, 100, 300, 100, 300],
+            });
+        }).catch(function () { /* SW non pronto/non disponibile */ });
+    }
+
+    function closeServiceWorkerNotification() {
+        if (!('serviceWorker' in navigator)) return;
+        navigator.serviceWorker.ready.then(function (reg) {
+            reg.getNotifications({ tag: 'gymit-rest-timer' }).then(function (notifications) {
+                notifications.forEach(function (n) { n.close(); });
+            });
+        }).catch(function () { /* ignore */ });
+    }
 
     // ── Stato ─────────────────────────────────────────────────────
     function defaultDuration() {
@@ -149,6 +197,7 @@
     // ── Transizioni ───────────────────────────────────────────────
     function start(seconds) {
         stopAlarm();
+        ensureNotificationPermission();
         if (typeof seconds === 'number') {
             state.duration = seconds;
             rememberDuration(seconds);
@@ -196,12 +245,13 @@
         saveState();
         render();
         startAlarmLoop();
+        notifyViaServiceWorker();
     }
 
     // L'utente interrompe l'allarme toccando il FAB — non serve aprire
     // il pannello. Torna direttamente a idle, pronto per un nuovo giro.
+    // (reset() chiama già stopAlarm() al suo interno.)
     function dismissFinished() {
-        stopAlarm();
         reset();
     }
 
