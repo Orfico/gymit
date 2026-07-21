@@ -46,64 +46,19 @@
         </div>
     </div>
 
-    <!-- Card per gruppo muscolare -->
-    {% if muscle_groups %}
-    <h6 class="text-secondary text-uppercase fw-bold small mb-2">I tuoi progressi</h6>
-    {% endif %}
-    {% for mg in muscle_groups %}
-    <div class="card bg-black border-secondary mb-3">
-        <div class="card-header border-secondary d-flex justify-content-between align-items-center">
-            <span class="d-flex align-items-center gap-2">
-                <span class="muscle-icon"><i class="bi bi-activity"></i></span>
-                <span class="fw-bold text-uppercase small">{{ mg.name }}</span>
-            </span>
-            {% if mg.avg_variation > 0 %}
-            <span class="badge bg-success"><i class="bi bi-arrow-up-short"></i>{{ mg.avg_variation }}%</span>
-            {% elif mg.avg_variation < 0 %}
-            <span class="badge bg-danger"><i class="bi bi-arrow-down-short"></i>{{ mg.avg_variation }}%</span>
-            {% else %}
-            <span class="badge bg-secondary"><i class="bi bi-dash"></i>0%</span>
-            {% endif %}
-        </div>
-        <div class="card-body p-0">
-            {% for ex in mg.exercises %}
-            <a href="{% url 'exercise_progress' ex.exercise.pk %}"
-               class="d-flex align-items-center px-3 py-2 text-decoration-none text-light hover-row{% if not forloop.last %} border-bottom border-secondary{% endif %}">
-                <div class="flex-grow-1 text-truncate me-2">
-                    <span class="fw-semibold small">{{ ex.exercise.name }}</span>
-                </div>
-                <div style="width:80px;height:40px;flex-shrink:0;">
-                    <script type="application/json" id="spark-{{ ex.exercise.pk }}">{{ ex.chart_data|safe }}</script>
-                    <canvas data-sparkline-src="spark-{{ ex.exercise.pk }}" height="40" style="display:block;"></canvas>
-                </div>
-                <div class="text-end ms-3" style="min-width:60px;">
-                    <span class="fw-bold text-warning small">{{ ex.last_one_rm|floatformat:1 }} kg</span>
-                </div>
-                <i class="bi bi-chevron-right text-secondary ms-2 flex-shrink-0" style="font-size:12px;"></i>
-            </a>
-            {% endfor %}
+    <!-- Frase motivazionale del giorno -->
+    <div class="motivational-quote">
+        <i class="bi bi-quote motivational-quote-mark" aria-hidden="true"></i>
+        <div class="motivational-quote-content">
+            <i class="bi bi-lightning-charge-fill motivational-quote-icon"></i>
+            <p class="motivational-quote-text" id="motivationalQuoteText">&nbsp;</p>
         </div>
     </div>
-    {% empty %}
-    <div class="empty-state text-center py-5">
-        <div class="empty-state-icon mx-auto mb-3">
-            <i class="bi bi-graph-up-arrow"></i>
-        </div>
-        <p class="fw-semibold text-light mb-1">Nessun allenamento ancora</p>
-        <p class="small text-secondary mb-3">Registra la tua prima sessione per iniziare a monitorare i progressi nel tempo.</p>
-        <a href="{% url 'log_create' %}" class="btn btn-warning fw-bold">
-            <i class="bi bi-plus-lg"></i> Aggiungi il primo log
-        </a>
-    </div>
-    {% endfor %}
 
 </div>
 {% endblock %}
 
 {% block extra_js %}
 {% load static %}
-<script src="{% static 'gym/js/sparkline.js' %}"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', initSparklines);
-</script>
+<script src="{% static 'gym/js/motivational.js' %}"></script>
 {% endblock %}

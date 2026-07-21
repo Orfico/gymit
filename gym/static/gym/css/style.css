@@ -260,6 +260,63 @@ canvas {
     font-size: 1.75rem;
 }
 
+/* Dashboard — frase motivazionale del giorno */
+.motivational-quote {
+    position: relative;
+    background: linear-gradient(160deg, #161616 0%, #0d0d0d 100%);
+    border: 1px solid #262626;
+    border-radius: 18px;
+    padding: 52px 28px;
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
+}
+
+.motivational-quote-mark {
+    position: absolute;
+    top: -28px;
+    left: 4px;
+    font-size: 7rem;
+    line-height: 1;
+    color: rgba(255, 193, 7, 0.07);
+    pointer-events: none;
+}
+
+.motivational-quote-content {
+    position: relative;
+    z-index: 1;
+    max-width: 460px;
+}
+
+.motivational-quote-icon {
+    display: block;
+    font-size: 1.3rem;
+    color: var(--gymit-yellow);
+    margin-bottom: 16px;
+}
+
+.motivational-quote-text {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 800;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    background: linear-gradient(100deg, #fff 45%, var(--gymit-yellow) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+@media (min-width: 576px) {
+    .motivational-quote-text {
+        font-size: 1.65rem;
+    }
+}
+
 /* Loading states */
 .page-loader-overlay {
     position: fixed;
