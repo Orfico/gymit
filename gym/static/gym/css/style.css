@@ -199,6 +199,37 @@ canvas {
     cursor: pointer;
 }
 
+/* Scheda — pallini serie completate */
+.set-dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.set-dot {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    background: #2a2a2a;
+    border: 2px solid #3a3a3a;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.set-dot:hover {
+    border-color: #555;
+}
+
+.set-dot:active {
+    transform: scale(0.88);
+}
+
+.set-dot.completed {
+    background: var(--gymit-yellow);
+    border-color: var(--gymit-yellow);
+}
+
 /* Dashboard — stat tiles */
 .stat-tile {
     border-radius: 14px;
