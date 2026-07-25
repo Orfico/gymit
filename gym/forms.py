@@ -52,7 +52,7 @@ class ExerciseLogForm(forms.ModelForm):
         fields = ['exercise', 'date', 'sets', 'reps', 'weight', 'notes']
         widgets = {
             'exercise': forms.Select(attrs={'class': 'form-select'}),
-            'date': forms.DateInput(attrs={
+            'date': forms.DateInput(format='%Y-%m-%d', attrs={
                 'class': 'form-control',
                 'type': 'date'
             }),
