@@ -51,18 +51,23 @@
                     </div>
                 </div>
 
-                <!-- Carico -->
-                <div class="mb-3">
+                <!-- Carico — nascosto per gli esercizi a corpo libero -->
+                <div class="mb-3" id="weightFieldGroup">
                     <label class="form-label fw-semibold">Carico (kg)</label>
                     {{ form.weight }}
+                    {% if form.weight.errors %}
+                    <div class="text-danger small mt-1">{{ form.weight.errors }}</div>
+                    {% endif %}
                 </div>
 
-                <!-- Preview 1RM in tempo reale -->
+                <!-- Preview 1RM in tempo reale — solo esercizi con pesi -->
                 <div class="alert alert-dark border-warning mb-3 py-2" id="oneRmPreview" style="display:none;">
                     <span class="text-secondary small">Massimale teorico (Epley): </span>
                     <span class="fw-bold text-warning fs-5" id="oneRmValue">—</span>
                     <span class="text-secondary"> kg</span>
                 </div>
+
+                <script type="application/json" id="bodyweightMap">{{ bodyweight_map|safe }}</script>
 
                 <!-- Note -->
                 <div class="mb-4">
@@ -98,6 +103,30 @@
             selectId: 'id_exercise',
             endpointUrl: '{% url "exercise_autocomplete" %}',
         });
+
+        // Nasconde il campo carico (e la preview 1RM) per gli esercizi a
+        // corpo libero — sia al caricamento (esercizio precompilato o form
+        // di modifica) sia quando l'utente ne sceglie uno via autocomplete.
+        var bodyweightMapEl = document.getElementById('bodyweightMap');
+        var bodyweightMap = {};
+        try { bodyweightMap = JSON.parse(bodyweightMapEl.textContent || '{}'); } catch (e) { /* ignore */ }
+
+        var exerciseSelect = document.getElementById('id_exercise');
+        var weightGroup = document.getElementById('weightFieldGroup');
+        var oneRmPreview = document.getElementById('oneRmPreview');
+        var weightInput = document.getElementById('id_weight');
+
+        function toggleWeightField() {
+            var isBodyweight = bodyweightMap[exerciseSelect.value] === true;
+            if (weightGroup) weightGroup.style.display = isBodyweight ? 'none' : '';
+            if (isBodyweight) {
+                if (weightInput) weightInput.value = '';
+                if (oneRmPreview) oneRmPreview.style.display = 'none';
+            }
+        }
+
+        exerciseSelect.addEventListener('change', toggleWeightField);
+        toggleWeightField();
     });
 </script>
 {% endblock %}

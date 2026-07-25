@@ -82,13 +82,23 @@ class ExerciseLogForm(forms.ModelForm):
         if user:
             self.fields['exercise'].queryset = Exercise.objects.all()
         self.fields['notes'].required = False
+        self.fields['weight'].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        exercise = cleaned_data.get('exercise')
+        if exercise and exercise.is_bodyweight:
+            cleaned_data['weight'] = None
+        elif exercise and cleaned_data.get('weight') is None:
+            self.add_error('weight', 'Il carico è obbligatorio per gli esercizi con pesi.')
+        return cleaned_data
 
 
 class ExerciseForm(forms.ModelForm):
     """Permette all'utente di aggiungere esercizi personalizzati."""
     class Meta:
         model = Exercise
-        fields = ['name', 'muscle_group', 'description']
+        fields = ['name', 'muscle_group', 'description', 'is_bodyweight']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control',
@@ -100,4 +110,5 @@ class ExerciseForm(forms.ModelForm):
                 'rows': 3,
                 'placeholder': 'Descrizione tecnica opzionale...'
             }),
+            'is_bodyweight': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }

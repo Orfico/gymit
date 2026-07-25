@@ -20,13 +20,23 @@
                 <div>
                     <div class="fw-semibold">{{ item.exercise.name }}</div>
                     <div class="small text-secondary">
+                        {% if item.exercise.is_bodyweight %}
+                        Ultima: {{ item.last_log.date|date:"d M Y" }} &nbsp;·&nbsp;
+                        {{ item.last_log.reps }} reps
+                        {% else %}
                         Ultima: {{ item.last_log.date|date:"d M Y" }} &nbsp;·&nbsp;
                         {{ item.last_log.weight }} kg × {{ item.last_log.reps }} reps
+                        {% endif %}
                     </div>
                 </div>
                 <div class="text-end">
+                    {% if item.exercise.is_bodyweight %}
+                    <span class="badge bg-warning text-dark fs-6">{{ item.best_reps }}</span>
+                    <div class="small text-secondary">reps</div>
+                    {% else %}
                     <span class="badge bg-warning text-dark fs-6">{{ item.best_one_rm|floatformat:2 }}</span>
                     <div class="small text-secondary">kg 1RM</div>
+                    {% endif %}
                 </div>
             </div>
         </div>

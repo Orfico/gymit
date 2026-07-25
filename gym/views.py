@@ -42,10 +42,11 @@ def dashboard(request):
     for log in all_logs:
         exercise_logs[log.exercise].append(log)
 
-    # Aggrega per gruppo muscolare, escludendo esercizi con <2 log
+    # Aggrega per gruppo muscolare, escludendo esercizi con <2 log e quelli
+    # a corpo libero (niente 1RM da tracciare per loro)
     mg_exercises = defaultdict(list)
     for exercise, logs in exercise_logs.items():
-        if len(logs) < 2:
+        if len(logs) < 2 or exercise.is_bodyweight:
             continue
         first_1rm = float(logs[0].one_rm)
         last_1rm = float(logs[-1].one_rm)
@@ -263,16 +264,17 @@ def log_create(request):
         log = form.save(commit=False)
         log.user = request.user
         log.save()
-        messages.success(
-            request,
-            f'Log salvato — 1RM teorico: {log.one_rm} kg'
-        )
+        if log.one_rm is not None:
+            messages.success(request, f'Log salvato — 1RM teorico: {log.one_rm} kg')
+        else:
+            messages.success(request, 'Log salvato.')
         from_page = request.POST.get('from')
         plan_pk = request.POST.get('plan')
         if from_page == 'plan' and plan_pk:
             return redirect('plan_detail', pk=plan_pk)
         return redirect('exercise_progress', exercise_id=log.exercise.pk)
-    return render(request, 'gym/log_form.html', {'form': form})
+    bodyweight_map = json.dumps({ex.pk: ex.is_bodyweight for ex in Exercise.objects.all()})
+    return render(request, 'gym/log_form.html', {'form': form, 'bodyweight_map': bodyweight_map})
 
 @login_required
 def log_edit(request, pk):
@@ -280,12 +282,17 @@ def log_edit(request, pk):
     form = ExerciseLogForm(request.POST or None, instance=log, user=request.user)
     if form.is_valid():
         form.save()
-        messages.success(request, f'Log aggiornato — 1RM: {log.one_rm} kg')
+        if log.one_rm is not None:
+            messages.success(request, f'Log aggiornato — 1RM: {log.one_rm} kg')
+        else:
+            messages.success(request, 'Log aggiornato.')
         return redirect('exercise_progress', exercise_id=log.exercise.pk)
+    bodyweight_map = json.dumps({ex.pk: ex.is_bodyweight for ex in Exercise.objects.all()})
     return render(request, 'gym/log_form.html', {
         'form': form,
         'editing': True,
         'log': log,
+        'bodyweight_map': bodyweight_map,
     })
 
 
@@ -323,6 +330,7 @@ def exercise_progress(request, exercise_id):
         messages.info(request, f'Nessun log trovato per "{exercise.name}".')
 
     best = all_logs.aggregate(best_one_rm=Max('one_rm'))['best_one_rm']
+    best_reps = all_logs.aggregate(best_reps=Max('reps'))['best_reps']
     total_log_count = all_logs.count()
 
     # ── Filtro temporale ──────────────────────────────────────────
@@ -342,8 +350,8 @@ def exercise_progress(request, exercise_id):
     chart_data = list(logs.values('date', 'one_rm', 'weight', 'reps', 'sets'))
     for entry in chart_data:
         entry['date'] = entry['date'].strftime('%d/%m/%Y')
-        entry['one_rm'] = round(float(entry['one_rm']), 2)
-        entry['weight'] = round(float(entry['weight']), 2)
+        entry['one_rm'] = round(float(entry['one_rm']), 2) if entry['one_rm'] is not None else None
+        entry['weight'] = round(float(entry['weight']), 2) if entry['weight'] is not None else None
 
     PERIOD_LABELS = {
         '3m':  '3 mesi',
@@ -355,6 +363,7 @@ def exercise_progress(request, exercise_id):
         'exercise': exercise,
         'logs': logs.order_by('-date', '-id'),
         'best_one_rm': best,
+        'best_reps': best_reps,
         'chart_data': json.dumps(chart_data),
         'log_count': logs.count(),
         'total_log_count': total_log_count,
@@ -384,12 +393,16 @@ def progress_overview(request):
         best = ExerciseLog.objects.filter(
             user=request.user, exercise=exercise
         ).aggregate(best=Max('one_rm'))['best']
+        best_reps = ExerciseLog.objects.filter(
+            user=request.user, exercise=exercise
+        ).aggregate(best=Max('reps'))['best']
         last_log = ExerciseLog.objects.filter(
             user=request.user, exercise=exercise
         ).order_by('-date', '-id').first()
         exercises_with_best.append({
             'exercise': exercise,
             'best_one_rm': best,
+            'best_reps': best_reps,
             'last_log': last_log,
         })
 
@@ -432,7 +445,7 @@ def exercise_autocomplete(request):
         Exercise.objects
         .filter(name__icontains=query)
         .order_by('muscle_group', 'name')[:10]
-        .values('id', 'name', 'muscle_group')
+        .values('id', 'name', 'muscle_group', 'is_bodyweight')
     )
     results = [
         {
@@ -441,6 +454,7 @@ def exercise_autocomplete(request):
             'muscle_group': dict(
                 __import__('gym.models', fromlist=['MuscleGroup']).MuscleGroup.choices
             ).get(ex['muscle_group'], ex['muscle_group']),
+            'is_bodyweight': ex['is_bodyweight'],
         }
         for ex in exercises
     ]

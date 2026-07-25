@@ -18,8 +18,8 @@ from gym.views import log_create as log_create_view, dashboard as dashboard_view
 def make_user(username='testuser', password='testpass'):
     return User.objects.create_user(username, password=password)
 
-def make_exercise(name='Squat', muscle=MuscleGroup.LEGS):
-    return Exercise.objects.create(name=name, muscle_group=muscle)
+def make_exercise(name='Squat', muscle=MuscleGroup.LEGS, is_bodyweight=False):
+    return Exercise.objects.create(name=name, muscle_group=muscle, is_bodyweight=is_bodyweight)
 
 def make_plan(user, name='Test Plan', is_active=True, order=0):
     return WorkoutPlan.objects.create(user=user, name=name, is_active=is_active, order=order)
@@ -29,7 +29,7 @@ def make_log(user, exercise, weight=100, reps=5, sets=3, log_date=None):
         user=user, exercise=exercise,
         date=log_date or date.today(),
         sets=sets, reps=reps,
-        weight=Decimal(str(weight)),
+        weight=Decimal(str(weight)) if weight is not None else None,
     )
 
 
@@ -121,6 +121,18 @@ class DashboardTest(TestCase):
         make_plan(self.user, name='Attiva', is_active=True)
         make_plan(self.user, name='Archiviata', is_active=False)
         self.assertEqual(self._ctx()['active_plans_count'], 1)
+
+    def test_bodyweight_exercise_does_not_crash_dashboard(self):
+        """
+        one_rm è None per i log a corpo libero: l'aggregazione per gruppo
+        muscolare deve saltarli, non andare in errore su float(None).
+        """
+        ex = make_exercise('Trazioni Dash', MuscleGroup.BACK, is_bodyweight=True)
+        make_log(self.user, ex, weight=None, reps=10)
+        make_log(self.user, ex, weight=None, reps=12)
+        ctx = self._ctx()  # non deve sollevare eccezioni
+        keys = [mg['key'] for mg in ctx['muscle_groups']]
+        self.assertNotIn('back', keys)
 
 
 # ─── Log CRUD ─────────────────────────────────────────────────────────────────
@@ -306,6 +318,35 @@ class ProgressViewTest(TestCase):
         self.assertEqual(r.context['log_count'], 2)
 
 
+class BodyweightProgressViewTest(TestCase):
+    def setUp(self):
+        self.user = make_user('bwprog')
+        self.client.login(username='bwprog', password='testpass')
+        self.exercise = make_exercise('Trazioni Prog', MuscleGroup.BACK, is_bodyweight=True)
+
+    def test_loads_without_error(self):
+        make_log(self.user, self.exercise, weight=None, reps=8)
+        make_log(self.user, self.exercise, weight=None, reps=10)
+        r = self.client.get(reverse('exercise_progress', kwargs={'exercise_id': self.exercise.pk}))
+        self.assertEqual(r.status_code, 200)
+
+    def test_best_reps_computed(self):
+        make_log(self.user, self.exercise, weight=None, reps=8)
+        make_log(self.user, self.exercise, weight=None, reps=15)
+        r = self.client.get(reverse('exercise_progress', kwargs={'exercise_id': self.exercise.pk}))
+        self.assertEqual(r.context['best_reps'], 15)
+        self.assertIsNone(r.context['best_one_rm'])
+
+    def test_chart_data_has_null_one_rm_and_weight(self):
+        make_log(self.user, self.exercise, weight=None, reps=8)
+        make_log(self.user, self.exercise, weight=None, reps=10)
+        r = self.client.get(reverse('exercise_progress', kwargs={'exercise_id': self.exercise.pk}))
+        chart_data = json.loads(r.context['chart_data'])
+        self.assertTrue(all(entry['one_rm'] is None for entry in chart_data))
+        self.assertTrue(all(entry['weight'] is None for entry in chart_data))
+        self.assertTrue(all(entry['reps'] for entry in chart_data))
+
+
 class ProgressOverviewTest(TestCase):
     def setUp(self):
         self.user = make_user('overview')
@@ -324,6 +365,15 @@ class ProgressOverviewTest(TestCase):
         make_log(other, ex)
         r = self.client.get(reverse('progress_overview'))
         self.assertEqual(len(r.context['exercises']), 0)
+
+    def test_bodyweight_exercise_shows_best_reps(self):
+        ex = make_exercise('Piegamenti Overview', MuscleGroup.CHEST, is_bodyweight=True)
+        make_log(self.user, ex, weight=None, reps=12)
+        make_log(self.user, ex, weight=None, reps=18)
+        r = self.client.get(reverse('progress_overview'))
+        item = next(i for i in r.context['exercises'] if i['exercise'].pk == ex.pk)
+        self.assertEqual(item['best_reps'], 18)
+        self.assertIsNone(item['best_one_rm'])
 
 
 # ─── Workout Plans ────────────────────────────────────────────────────────────

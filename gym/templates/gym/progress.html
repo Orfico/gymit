@@ -26,8 +26,18 @@
         </div>
     </div>
 
-    <!-- Best 1RM — sempre all-time -->
-    {% if best_one_rm %}
+    <!-- Best 1RM / best ripetizioni — sempre all-time -->
+    {% if exercise.is_bodyweight %}
+    {% if best_reps %}
+    <div class="card bg-warning mb-4">
+        <div class="card-body py-3 text-center">
+            <div class="small fw-bold text-uppercase">Massimo ripetizioni — All time</div>
+            <div class="display-5 fw-bold">{{ best_reps }} <span class="fs-4">reps</span></div>
+            <div class="small">Miglior risultato in una sessione</div>
+        </div>
+    </div>
+    {% endif %}
+    {% elif best_one_rm %}
     <div class="card bg-warning mb-4">
         <div class="card-body py-3 text-center">
             <div class="small fw-bold text-uppercase">Massimale Teorico (1RM) — All time</div>
@@ -51,7 +61,7 @@
     {% if log_count > 1 %}
     <div class="card bg-black border-secondary mb-4">
         <div class="card-header border-secondary d-flex justify-content-between align-items-center">
-            <span class="fw-semibold"><i class="bi bi-graph-up me-2"></i>Andamento 1RM</span>
+            <span class="fw-semibold"><i class="bi bi-graph-up me-2"></i>{% if exercise.is_bodyweight %}Andamento ripetizioni{% else %}Andamento 1RM{% endif %}</span>
             <small class="text-secondary">{{ period_label }}</small>
         </div>
         <div class="card-body">
@@ -85,15 +95,24 @@
                     <div>
                         <div class="fw-semibold">{{ log.date|date:"d M Y" }}</div>
                         <div class="small text-secondary">
+                            {% if exercise.is_bodyweight %}
+                            {{ log.sets }} serie &nbsp;×&nbsp; {{ log.reps }} reps
+                            {% else %}
                             {{ log.sets }} serie &nbsp;×&nbsp; {{ log.reps }} reps &nbsp;@&nbsp; {{ log.weight }} kg
+                            {% endif %}
                         </div>
                         {% if log.notes %}
                         <div class="small text-secondary fst-italic mt-1">{{ log.notes }}</div>
                         {% endif %}
                     </div>
                     <div class="text-end">
+                        {% if exercise.is_bodyweight %}
+                        <span class="badge bg-warning text-dark fs-6">{{ log.reps }}</span>
+                        <div class="small text-secondary">reps</div>
+                        {% else %}
                         <span class="badge bg-warning text-dark fs-6">{{ log.one_rm|floatformat:2 }}</span>
                         <div class="small text-secondary">kg 1RM</div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -124,7 +143,7 @@
 <script>
     const chartData = {{ chart_data|safe }};
     if (chartData.length > 1) {
-        initProgressChart('progressChart', chartData);
+        initProgressChart('progressChart', chartData, {{ exercise.is_bodyweight|yesno:"true,false" }});
     }
 
     initSwipeToDelete({

@@ -26,6 +26,7 @@ class Exercise(models.Model):
         verbose_name='Gruppo muscolare'
     )
     description = models.TextField(blank=True, verbose_name='Descrizione')
+    is_bodyweight = models.BooleanField(default=False, verbose_name='A corpo libero')
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -124,12 +125,14 @@ class ExerciseLog(models.Model):
         max_digits=6,
         decimal_places=2,
         verbose_name='Carico (kg)',
-        validators=[MinValueValidator(0)]
+        validators=[MinValueValidator(0)],
+        null=True, blank=True,
     )
     one_rm = models.DecimalField(
         max_digits=6,
         decimal_places=2,
         editable=False,
+        null=True,
         verbose_name='Massimale teorico (kg)'
     )
     notes = models.TextField(blank=True, verbose_name='Note sessione')
@@ -154,10 +157,16 @@ class ExerciseLog(models.Model):
         return round(float(weight) * (1 + reps / 30), 2)
 
     def save(self, *args, **kwargs):
-        self.one_rm = self.epley(self.weight, self.reps)
+        if self.exercise.is_bodyweight:
+            self.weight = None
+            self.one_rm = None
+        else:
+            self.one_rm = self.epley(self.weight, self.reps)
         super().save(*args, **kwargs)
 
     def __str__(self):
+        if self.exercise.is_bodyweight:
+            return f"{self.exercise.name} — {self.date} — {self.sets}x{self.reps}"
         return (
             f"{self.exercise.name} — {self.date} — "
             f"{self.weight}kg × {self.sets}x{self.reps} "

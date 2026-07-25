@@ -95,6 +95,10 @@ function initExerciseAutocomplete({ selectId, endpointUrl }) {
     function selectExercise(ex) {
         input.value = ex.name;
         select.value = ex.id;
+        // select.value non scatena 'change' da solo (non è un'interazione
+        // utente nativa) — chi usa il widget può ascoltarlo per reagire
+        // alla scelta (es. mostrare/nascondere campi in base all'esercizio).
+        select.dispatchEvent(new Event('change', { bubbles: true }));
         hideDropdown();
     }
 
