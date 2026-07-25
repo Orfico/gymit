@@ -10,6 +10,17 @@
         </a>
     </div>
 
+    <!-- Ricerca per nome -->
+    <div class="mb-3 position-relative">
+        <div class="position-relative">
+            <input type="text" id="exerciseSearchInput" class="form-control" style="padding-right:38px;"
+                   placeholder="Cerca esercizio..." autocomplete="off" aria-label="Cerca esercizio">
+            <i class="bi bi-search position-absolute text-secondary"
+               style="right:14px; top:50%; transform:translateY(-50%); pointer-events:none;"></i>
+        </div>
+        <ul class="autocomplete-dropdown list-unstyled mb-0" id="exerciseSearchDropdown"></ul>
+    </div>
+
     <!-- Filtro per gruppo muscolare -->
     <div class="mb-3 overflow-x-auto">
         <div class="d-flex gap-2 pb-1" style="min-width:max-content;">
@@ -26,55 +37,66 @@
         </div>
     </div>
 
-    {% regroup exercises by get_muscle_group_display as grouped %}
-    {% for group in grouped %}
-    <h6 class="text-secondary text-uppercase fw-bold small mb-2 mt-4">{{ group.grouper }}</h6>
-    {% for exercise in group.list %}
-    <div class="swipe-item mb-2">
-        <button class="swipe-delete-btn" data-url="{% url 'exercise_delete' exercise.pk %}">
-            <i class="bi bi-trash"></i>
-        </button>
-        <div class="swipe-inner card bg-black border-secondary">
-            <div class="card-body py-2 px-3">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="fw-semibold">
-                            {{ exercise.name }}
-                            {% if exercise.is_bodyweight %}
-                            <span class="badge bg-secondary fw-normal ms-1" style="font-size:10px;">
-                                <i class="bi bi-activity"></i> Corpo libero
-                            </span>
-                            {% endif %}
+    <div id="exerciseGroups">
+        {% regroup exercises by get_muscle_group_display as grouped %}
+        {% for group in grouped %}
+        <div class="exercise-group">
+            <h6 class="text-secondary text-uppercase fw-bold small mb-2 mt-4">{{ group.grouper }}</h6>
+            {% for exercise in group.list %}
+            <div class="swipe-item mb-2" data-exercise-name="{{ exercise.name }}">
+                <button class="swipe-delete-btn" data-url="{% url 'exercise_delete' exercise.pk %}">
+                    <i class="bi bi-trash"></i>
+                </button>
+                <div class="swipe-inner card bg-black border-secondary">
+                    <div class="card-body py-2 px-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-semibold">
+                                    {{ exercise.name }}
+                                    {% if exercise.is_bodyweight %}
+                                    <span class="badge bg-secondary fw-normal ms-1" style="font-size:10px;">
+                                        <i class="bi bi-activity"></i> Corpo libero
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                {% if exercise.description %}
+                                <div class="small text-secondary">{{ exercise.description|truncatechars:60 }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="d-flex gap-2">
+                                <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}"
+                                   class="btn btn-warning btn-sm">
+                                    <i class="bi bi-plus"></i>
+                                </a>
+                                <a href="{% url 'exercise_progress' exercise.pk %}"
+                                   class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-graph-up"></i>
+                                </a>
+                                <a href="{% url 'exercise_edit' exercise.pk %}"
+                                   class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                            </div>
                         </div>
-                        {% if exercise.description %}
-                        <div class="small text-secondary">{{ exercise.description|truncatechars:60 }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="d-flex gap-2">
-                        <a href="{% url 'log_create' %}?exercise={{ exercise.pk }}"
-                           class="btn btn-warning btn-sm">
-                            <i class="bi bi-plus"></i>
-                        </a>
-                        <a href="{% url 'exercise_progress' exercise.pk %}"
-                           class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-graph-up"></i>
-                        </a>
-                        <a href="{% url 'exercise_edit' exercise.pk %}"
-                           class="btn btn-outline-secondary btn-sm">
-                            <i class="bi bi-pencil"></i>
-                        </a>
                     </div>
                 </div>
             </div>
+            {% endfor %}
         </div>
+        {% endfor %}
     </div>
-    {% endfor %}
-    {% empty %}
+
+    <div class="text-center text-secondary py-5" id="exerciseSearchEmpty" style="display:none;">
+        <i class="bi bi-search fs-1"></i>
+        <p class="mt-2">Nessun esercizio corrisponde alla ricerca.</p>
+    </div>
+
+    {% if not exercises %}
     <div class="text-center text-secondary py-5">
         <p>Nessun esercizio trovato.</p>
         <a href="{% url 'exercise_create' %}" class="btn btn-warning btn-sm">Aggiungi esercizio</a>
     </div>
-    {% endfor %}
+    {% endif %}
 
 </div>
 {% endblock %}
@@ -82,7 +104,15 @@
 {% block extra_js %}
 {% load static %}
 <script src="{% static 'gym/js/swipe.js' %}"></script>
+<script src="{% static 'gym/js/exercise_search.js' %}"></script>
 <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        initExerciseSearch({
+            inputId: 'exerciseSearchInput',
+            dropdownId: 'exerciseSearchDropdown',
+        });
+    });
+
     initSwipeToDelete({
         listSelector: '.swipe-item',
         confirmMessage: 'Eliminando questo esercizio verranno eliminati anche tutti i log associati.\nContinuare?',
