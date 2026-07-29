@@ -529,7 +529,7 @@ def plan_export(request, pk):
 
     writer = csv.writer(response)
     writer.writerow(['piano', plan.name, plan.description or ''])
-    writer.writerow(['esercizio', 'gruppo_muscolare', 'serie', 'ripetizioni', 'ordine', 'note'])
+    writer.writerow(['esercizio', 'gruppo_muscolare', 'serie', 'ripetizioni', 'ordine', 'note', 'corpo_libero'])
     for pe in planned:
         writer.writerow([
             pe.exercise.name,
@@ -538,6 +538,7 @@ def plan_export(request, pk):
             pe.target_reps,
             pe.order,
             pe.notes or '',
+            'si' if pe.exercise.is_bodyweight else 'no',
         ])
     return response
 
@@ -614,11 +615,18 @@ def plan_import(request):
 
             order = int(row[4]) if len(row) > 4 and row[4].strip().isdigit() else i
             notes = row[5].strip() if len(row) > 5 else ''
+            # Colonna opzionale (assente nei CSV esportati prima di questa
+            # funzionalità): esercizi senza questa colonna sono considerati
+            # "con pesi", coerente col default del modello.
+            is_bodyweight = row[6].strip().lower() in ('si', 'sì', 'yes', 'true', '1') if len(row) > 6 else False
 
             # Crea l'esercizio se non esiste
             exercise, was_created = Exercise.objects.get_or_create(
                 name=ex_name,
-                defaults={'muscle_group': ex_muscle or MuscleGroup.FULL_BODY}
+                defaults={
+                    'muscle_group': ex_muscle or MuscleGroup.FULL_BODY,
+                    'is_bodyweight': is_bodyweight,
+                }
             )
             if was_created:
                 created_exercises.append(ex_name)

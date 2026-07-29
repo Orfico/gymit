@@ -456,11 +456,18 @@ class PlanExportTest(TestCase):
         self.user = make_user('exporter')
         self.client.login(username='exporter', password='testpass')
         self.plan = make_plan(self.user, 'Push Day')
-        ex = make_exercise('Panca', MuscleGroup.CHEST)
+        self.ex = make_exercise('Panca', MuscleGroup.CHEST)
         PlannedExercise.objects.create(
-            plan=self.plan, exercise=ex,
+            plan=self.plan, exercise=self.ex,
             target_sets=4, target_reps=8, order=0
         )
+
+    def _rows(self):
+        import csv as csv_module
+        import io
+        r = self.client.get(reverse('plan_export', kwargs={'pk': self.plan.pk}))
+        content = r.content.decode('utf-8-sig')
+        return list(csv_module.reader(io.StringIO(content)))
 
     def test_export_returns_csv(self):
         r = self.client.get(reverse('plan_export', kwargs={'pk': self.plan.pk}))
@@ -482,6 +489,26 @@ class PlanExportTest(TestCase):
         self.client.login(username='other6', password='testpass')
         r = self.client.get(reverse('plan_export', kwargs={'pk': self.plan.pk}))
         self.assertEqual(r.status_code, 404)
+
+    def test_export_header_includes_bodyweight_column(self):
+        rows = self._rows()
+        self.assertIn('corpo_libero', rows[1])
+
+    def test_export_weighted_exercise_marked_no(self):
+        rows = self._rows()
+        exercise_row = rows[2]
+        self.assertEqual(exercise_row[0], 'Panca')
+        self.assertEqual(exercise_row[-1], 'no')
+
+    def test_export_bodyweight_exercise_marked_si(self):
+        bw_ex = make_exercise('Trazioni Export', MuscleGroup.BACK, is_bodyweight=True)
+        PlannedExercise.objects.create(
+            plan=self.plan, exercise=bw_ex,
+            target_sets=3, target_reps=10, order=1
+        )
+        rows = self._rows()
+        bw_row = next(row for row in rows[2:] if row[0] == 'Trazioni Export')
+        self.assertEqual(bw_row[-1], 'si')
 
 
 class PlanImportTest(TestCase):
@@ -534,6 +561,40 @@ class PlanImportTest(TestCase):
     def test_import_get_shows_form(self):
         r = self.client.get(reverse('plan_import'))
         self.assertEqual(r.status_code, 200)
+
+    def test_import_with_bodyweight_column_creates_bodyweight_exercise(self):
+        csv_file = self._make_csv(rows=[['Trazioni Import', 'back', '3', '10', '0', '', 'si']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Trazioni Import')
+        self.assertTrue(exercise.is_bodyweight)
+
+    def test_import_bodyweight_no_creates_weighted_exercise(self):
+        csv_file = self._make_csv(rows=[['Panca Import', 'chest', '4', '8', '0', '', 'no']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Panca Import')
+        self.assertFalse(exercise.is_bodyweight)
+
+    def test_import_without_bodyweight_column_defaults_to_weighted(self):
+        """Retrocompatibilità con i CSV esportati prima di questa funzionalità."""
+        csv_file = self._make_csv(rows=[['Squat Legacy', 'legs', '4', '6', '0', '']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Squat Legacy')
+        self.assertFalse(exercise.is_bodyweight)
+
+    def test_import_does_not_overwrite_existing_exercise_bodyweight_flag(self):
+        """
+        Il flag corpo_libero, come muscle_group, si applica solo agli
+        esercizi creati automaticamente — non sovrascrive quelli esistenti.
+        """
+        make_exercise('Trazioni Esistente', MuscleGroup.BACK, is_bodyweight=True)
+        csv_file = self._make_csv(rows=[['Trazioni Esistente', 'back', '3', '10', '0', '', 'no']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Trazioni Esistente')
+        self.assertTrue(exercise.is_bodyweight)
 
 
 # ─── Autocomplete ─────────────────────────────────────────────────────────────
