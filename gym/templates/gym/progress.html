@@ -26,6 +26,10 @@
         </div>
     </div>
 
+    {% if exercise.description %}
+    <div class="small text-secondary mb-4">{{ exercise.description }}</div>
+    {% endif %}
+
     <!-- Best 1RM / best ripetizioni — sempre all-time -->
     {% if exercise.is_bodyweight %}
     {% if best_reps %}
