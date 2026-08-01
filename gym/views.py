@@ -1,20 +1,22 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Max, Count
+from django.db.models import Max, Count, Prefetch
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
+from django.utils import timezone
 
 from .forms import (
     WorkoutPlanForm,
     PlannedExerciseForm,
     ExerciseLogForm,
     ExerciseForm,
+    PlanFolderForm,
 )
 
-from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
+from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -41,10 +43,11 @@ def dashboard(request):
     for log in all_logs:
         exercise_logs[log.exercise].append(log)
 
-    # Aggrega per gruppo muscolare, escludendo esercizi con <2 log
+    # Aggrega per gruppo muscolare, escludendo esercizi con <2 log e quelli
+    # a corpo libero (niente 1RM da tracciare per loro)
     mg_exercises = defaultdict(list)
     for exercise, logs in exercise_logs.items():
-        if len(logs) < 2:
+        if len(logs) < 2 or exercise.is_bodyweight:
             continue
         first_1rm = float(logs[0].one_rm)
         last_1rm = float(logs[-1].one_rm)
@@ -80,8 +83,26 @@ def dashboard(request):
 
     muscle_groups.sort(key=lambda x: x['total_logs'], reverse=True)
 
+    week_start = date.today() - timedelta(days=date.today().weekday())
+    sessions_this_week = all_logs.filter(date__gte=week_start).count()
+    active_plans_count = WorkoutPlan.objects.filter(user=request.user, is_active=True).count()
+
+    hour = timezone.localtime().hour
+    if hour < 6:
+        greeting = 'Buonanotte'
+    elif hour < 12:
+        greeting = 'Buongiorno'
+    elif hour < 18:
+        greeting = 'Buon pomeriggio'
+    else:
+        greeting = 'Buonasera'
+
     return render(request, 'gym/dashboard.html', {
         'muscle_groups': muscle_groups,
+        'sessions_this_week': sessions_this_week,
+        'exercises_tracked': len(exercise_logs),
+        'active_plans_count': active_plans_count,
+        'greeting': greeting,
     })
 
 
@@ -92,9 +113,25 @@ def plan_list(request):
     base_qs = WorkoutPlan.objects.filter(user=request.user).annotate(
         exercise_count=Count('planned_exercises')
     )
+    active_qs = base_qs.filter(is_active=True)
+
+    folders = list(
+        PlanFolder.objects.filter(user=request.user).prefetch_related(
+            Prefetch('plans', queryset=active_qs.order_by('order'))
+        )
+    )
+    unfoldered_plans = active_qs.filter(folder__isnull=True)
+
+    root_nodes = sorted(
+        [{'type': 'folder', 'obj': f} for f in folders]
+        + [{'type': 'plan', 'obj': p} for p in unfoldered_plans],
+        key=lambda n: n['obj'].order
+    )
+
     return render(request, 'gym/plan_list.html', {
-        'active_plans': base_qs.filter(is_active=True),
+        'root_nodes': root_nodes,
         'archived_plans': base_qs.filter(is_active=False),
+        'has_active_plans': active_qs.exists(),
     })
 
 
@@ -145,19 +182,100 @@ def plan_delete(request, pk):
 
 @login_required
 def plan_list_reorder(request):
+    """
+    Riordina il livello radice (cartelle + schede sciolte, interleaved).
+    Payload: {"order": [{"type": "plan"|"folder", "id": N}, ...]}
+    Una scheda inclusa qui torna sempre "sciolta" (folder=None) — è così
+    che si gestisce anche il trascinamento fuori da una cartella.
+    Validazione solo di ownership: un payload parziale non è un errore
+    (a differenza della vecchia implementazione, che pretendeva un match
+    esatto con *tutte* le schede dell'utente comprese le archiviate — bug
+    che faceva fallire ogni riordino appena esisteva una scheda archiviata,
+    dato che il client invia solo le schede attive mostrate in pagina).
+    """
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+        order = data.get('order', [])
+        plan_ids = [entry['id'] for entry in order if entry.get('type') == 'plan']
+        folder_ids = [entry['id'] for entry in order if entry.get('type') == 'folder']
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    valid_plan_ids = set(WorkoutPlan.objects.filter(user=request.user).values_list('id', flat=True))
+    valid_folder_ids = set(PlanFolder.objects.filter(user=request.user).values_list('id', flat=True))
+    if not set(plan_ids) <= valid_plan_ids or not set(folder_ids) <= valid_folder_ids:
+        return JsonResponse({'error': 'Invalid IDs'}, status=400)
+
+    for position, entry in enumerate(order):
+        if entry.get('type') == 'plan':
+            WorkoutPlan.objects.filter(pk=entry['id'], user=request.user).update(order=position, folder=None)
+        elif entry.get('type') == 'folder':
+            PlanFolder.objects.filter(pk=entry['id'], user=request.user).update(order=position)
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+def plan_folder_reorder(request, pk):
+    """
+    Riordina le schede dentro una cartella. Include anche il caso "sposta
+    una scheda dentro questa cartella": basta includerne l'id nel payload.
+    Payload: {"order": [plan_id, ...]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    folder = get_object_or_404(PlanFolder, pk=pk, user=request.user)
     try:
         data = json.loads(request.body)
         ordered_ids = data.get('order', [])
     except (json.JSONDecodeError, AttributeError):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     valid_ids = set(WorkoutPlan.objects.filter(user=request.user).values_list('id', flat=True))
-    if set(ordered_ids) != valid_ids:
+    if not set(ordered_ids) <= valid_ids:
         return JsonResponse({'error': 'Invalid plan IDs'}, status=400)
     for position, plan_id in enumerate(ordered_ids):
-        WorkoutPlan.objects.filter(pk=plan_id, user=request.user).update(order=position)
+        WorkoutPlan.objects.filter(pk=plan_id, user=request.user).update(order=position, folder=folder)
     return JsonResponse({'status': 'ok'})
+
+
+@login_required
+def plan_folder_create(request):
+    if request.method == 'POST':
+        form = PlanFolderForm(request.POST)
+        if form.is_valid():
+            folder = form.save(commit=False)
+            folder.user = request.user
+            last_order = PlanFolder.objects.filter(user=request.user).aggregate(Max('order'))['order__max']
+            folder.order = (last_order or 0) + 1
+            folder.save()
+            messages.success(request, f'Cartella "{folder.name}" creata.')
+        else:
+            messages.error(request, 'Nome cartella non valido.')
+    return redirect('plan_list')
+
+
+@login_required
+def plan_folder_rename(request, pk):
+    folder = get_object_or_404(PlanFolder, pk=pk, user=request.user)
+    if request.method == 'POST':
+        form = PlanFolderForm(request.POST, instance=folder)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Cartella rinominata.')
+        else:
+            messages.error(request, 'Nome cartella non valido.')
+    return redirect('plan_list')
+
+
+@login_required
+def plan_folder_delete(request, pk):
+    folder = get_object_or_404(PlanFolder, pk=pk, user=request.user)
+    if request.method == 'POST':
+        name = folder.name
+        folder.delete()  # SET_NULL sulle schede contenute: non vengono eliminate
+        messages.success(request, f'Cartella "{name}" eliminata. Le schede al suo interno sono tornate fuori.')
+    return redirect('plan_list')
 
 
 # ─── Planned Exercises ────────────────────────────────────────────────────────
@@ -244,16 +362,17 @@ def log_create(request):
         log = form.save(commit=False)
         log.user = request.user
         log.save()
-        messages.success(
-            request,
-            f'Log salvato — 1RM teorico: {log.one_rm} kg'
-        )
+        if log.one_rm is not None:
+            messages.success(request, f'Log salvato — 1RM teorico: {log.one_rm} kg')
+        else:
+            messages.success(request, 'Log salvato.')
         from_page = request.POST.get('from')
         plan_pk = request.POST.get('plan')
         if from_page == 'plan' and plan_pk:
             return redirect('plan_detail', pk=plan_pk)
         return redirect('exercise_progress', exercise_id=log.exercise.pk)
-    return render(request, 'gym/log_form.html', {'form': form})
+    bodyweight_map = json.dumps({ex.pk: ex.is_bodyweight for ex in Exercise.objects.all()})
+    return render(request, 'gym/log_form.html', {'form': form, 'bodyweight_map': bodyweight_map})
 
 @login_required
 def log_edit(request, pk):
@@ -261,12 +380,17 @@ def log_edit(request, pk):
     form = ExerciseLogForm(request.POST or None, instance=log, user=request.user)
     if form.is_valid():
         form.save()
-        messages.success(request, f'Log aggiornato — 1RM: {log.one_rm} kg')
+        if log.one_rm is not None:
+            messages.success(request, f'Log aggiornato — 1RM: {log.one_rm} kg')
+        else:
+            messages.success(request, 'Log aggiornato.')
         return redirect('exercise_progress', exercise_id=log.exercise.pk)
+    bodyweight_map = json.dumps({ex.pk: ex.is_bodyweight for ex in Exercise.objects.all()})
     return render(request, 'gym/log_form.html', {
         'form': form,
         'editing': True,
         'log': log,
+        'bodyweight_map': bodyweight_map,
     })
 
 
@@ -304,6 +428,7 @@ def exercise_progress(request, exercise_id):
         messages.info(request, f'Nessun log trovato per "{exercise.name}".')
 
     best = all_logs.aggregate(best_one_rm=Max('one_rm'))['best_one_rm']
+    best_reps = all_logs.aggregate(best_reps=Max('reps'))['best_reps']
     total_log_count = all_logs.count()
 
     # ── Filtro temporale ──────────────────────────────────────────
@@ -323,8 +448,8 @@ def exercise_progress(request, exercise_id):
     chart_data = list(logs.values('date', 'one_rm', 'weight', 'reps', 'sets'))
     for entry in chart_data:
         entry['date'] = entry['date'].strftime('%d/%m/%Y')
-        entry['one_rm'] = round(float(entry['one_rm']), 2)
-        entry['weight'] = round(float(entry['weight']), 2)
+        entry['one_rm'] = round(float(entry['one_rm']), 2) if entry['one_rm'] is not None else None
+        entry['weight'] = round(float(entry['weight']), 2) if entry['weight'] is not None else None
 
     PERIOD_LABELS = {
         '3m':  '3 mesi',
@@ -336,6 +461,7 @@ def exercise_progress(request, exercise_id):
         'exercise': exercise,
         'logs': logs.order_by('-date', '-id'),
         'best_one_rm': best,
+        'best_reps': best_reps,
         'chart_data': json.dumps(chart_data),
         'log_count': logs.count(),
         'total_log_count': total_log_count,
@@ -365,12 +491,16 @@ def progress_overview(request):
         best = ExerciseLog.objects.filter(
             user=request.user, exercise=exercise
         ).aggregate(best=Max('one_rm'))['best']
+        best_reps = ExerciseLog.objects.filter(
+            user=request.user, exercise=exercise
+        ).aggregate(best=Max('reps'))['best']
         last_log = ExerciseLog.objects.filter(
             user=request.user, exercise=exercise
         ).order_by('-date', '-id').first()
         exercises_with_best.append({
             'exercise': exercise,
             'best_one_rm': best,
+            'best_reps': best_reps,
             'last_log': last_log,
         })
 
@@ -413,7 +543,7 @@ def exercise_autocomplete(request):
         Exercise.objects
         .filter(name__icontains=query)
         .order_by('muscle_group', 'name')[:10]
-        .values('id', 'name', 'muscle_group')
+        .values('id', 'name', 'muscle_group', 'is_bodyweight')
     )
     results = [
         {
@@ -422,6 +552,7 @@ def exercise_autocomplete(request):
             'muscle_group': dict(
                 __import__('gym.models', fromlist=['MuscleGroup']).MuscleGroup.choices
             ).get(ex['muscle_group'], ex['muscle_group']),
+            'is_bodyweight': ex['is_bodyweight'],
         }
         for ex in exercises
     ]
@@ -437,7 +568,17 @@ def exercise_create(request):
         exercise.save()
         messages.success(request, f'Esercizio "{exercise.name}" aggiunto.')
         return redirect('exercise_list')
-    return render(request, 'gym/exercise_form.html', {'form': form})
+    return render(request, 'gym/exercise_form.html', {'form': form, 'action': 'Crea'})
+
+@login_required
+def exercise_edit(request, pk):
+    exercise = get_object_or_404(Exercise, pk=pk)
+    form = ExerciseForm(request.POST or None, instance=exercise)
+    if form.is_valid():
+        form.save()
+        messages.success(request, f'Esercizio "{exercise.name}" aggiornato.')
+        return redirect('exercise_list')
+    return render(request, 'gym/exercise_form.html', {'form': form, 'action': 'Modifica', 'exercise': exercise})
 
 @login_required
 def exercise_delete(request, pk):
@@ -486,7 +627,7 @@ def plan_export(request, pk):
 
     writer = csv.writer(response)
     writer.writerow(['piano', plan.name, plan.description or ''])
-    writer.writerow(['esercizio', 'gruppo_muscolare', 'serie', 'ripetizioni', 'ordine', 'note'])
+    writer.writerow(['esercizio', 'gruppo_muscolare', 'serie', 'ripetizioni', 'ordine', 'note', 'corpo_libero'])
     for pe in planned:
         writer.writerow([
             pe.exercise.name,
@@ -495,6 +636,7 @@ def plan_export(request, pk):
             pe.target_reps,
             pe.order,
             pe.notes or '',
+            'si' if pe.exercise.is_bodyweight else 'no',
         ])
     return response
 
@@ -571,11 +713,18 @@ def plan_import(request):
 
             order = int(row[4]) if len(row) > 4 and row[4].strip().isdigit() else i
             notes = row[5].strip() if len(row) > 5 else ''
+            # Colonna opzionale (assente nei CSV esportati prima di questa
+            # funzionalità): esercizi senza questa colonna sono considerati
+            # "con pesi", coerente col default del modello.
+            is_bodyweight = row[6].strip().lower() in ('si', 'sì', 'yes', 'true', '1') if len(row) > 6 else False
 
             # Crea l'esercizio se non esiste
             exercise, was_created = Exercise.objects.get_or_create(
                 name=ex_name,
-                defaults={'muscle_group': ex_muscle or MuscleGroup.FULL_BODY}
+                defaults={
+                    'muscle_group': ex_muscle or MuscleGroup.FULL_BODY,
+                    'is_bodyweight': is_bodyweight,
+                }
             )
             if was_created:
                 created_exercises.append(ex_name)

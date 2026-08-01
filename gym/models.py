@@ -26,6 +26,7 @@ class Exercise(models.Model):
         verbose_name='Gruppo muscolare'
     )
     description = models.TextField(blank=True, verbose_name='Descrizione')
+    is_bodyweight = models.BooleanField(default=False, verbose_name='A corpo libero')
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -42,6 +43,25 @@ class Exercise(models.Model):
         return self.name
 
 
+class PlanFolder(models.Model):
+    """
+    Cartella creata dall'utente per raggruppare le proprie schede.
+    Un solo livello: una cartella contiene schede, non altre cartelle.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='plan_folders')
+    name = models.CharField(max_length=100, verbose_name='Nome cartella')
+    order = models.PositiveIntegerField(default=0, verbose_name='Ordine')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', '-created_at']
+        verbose_name = 'Cartella'
+        verbose_name_plural = 'Cartelle'
+
+    def __str__(self):
+        return f"{self.name} ({self.user.username})"
+
+
 class WorkoutPlan(models.Model):
     """Scheda d'allenamento dell'utente."""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='plans')
@@ -50,6 +70,13 @@ class WorkoutPlan(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True, verbose_name='Attiva')
     order = models.PositiveIntegerField(default=0, verbose_name='Ordine')
+    folder = models.ForeignKey(
+        PlanFolder,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='plans',
+        verbose_name='Cartella',
+    )
 
     class Meta:
         ordering = ['order', '-created_at']
@@ -124,12 +151,14 @@ class ExerciseLog(models.Model):
         max_digits=6,
         decimal_places=2,
         verbose_name='Carico (kg)',
-        validators=[MinValueValidator(0)]
+        validators=[MinValueValidator(0)],
+        null=True, blank=True,
     )
     one_rm = models.DecimalField(
         max_digits=6,
         decimal_places=2,
         editable=False,
+        null=True,
         verbose_name='Massimale teorico (kg)'
     )
     notes = models.TextField(blank=True, verbose_name='Note sessione')
@@ -154,10 +183,16 @@ class ExerciseLog(models.Model):
         return round(float(weight) * (1 + reps / 30), 2)
 
     def save(self, *args, **kwargs):
-        self.one_rm = self.epley(self.weight, self.reps)
+        if self.exercise.is_bodyweight:
+            self.weight = None
+            self.one_rm = None
+        else:
+            self.one_rm = self.epley(self.weight, self.reps)
         super().save(*args, **kwargs)
 
     def __str__(self):
+        if self.exercise.is_bodyweight:
+            return f"{self.exercise.name} — {self.date} — {self.sets}x{self.reps}"
         return (
             f"{self.exercise.name} — {self.date} — "
             f"{self.weight}kg × {self.sets}x{self.reps} "

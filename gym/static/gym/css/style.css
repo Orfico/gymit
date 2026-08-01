@@ -155,8 +155,45 @@ canvas {
     cursor: grabbing;
 }
 
-#drag-placeholder {
+#drag-placeholder,
+.tree-drag-placeholder {
     pointer-events: none;
+    border: 2px dashed #ffc107;
+    border-radius: 12px;
+    background: rgba(255, 193, 7, 0.05);
+    margin-bottom: 8px;
+}
+
+/* Cartelle schede */
+.plan-folder {
+    border: 1px solid #333;
+    border-radius: 12px;
+    background: #111;
+    transition: opacity 0.15s ease, border-color 0.15s ease;
+    user-select: none;
+}
+
+.plan-folder-header {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.plan-folder-header[aria-expanded="true"] .bi-chevron-down {
+    transform: rotate(180deg);
+}
+
+.plan-folder-header .bi-chevron-down {
+    transition: transform 0.15s ease;
+}
+
+.plan-folder-body {
+    padding: 0 10px 10px;
+    min-height: 12px;
+}
+
+.plan-folder.drag-over {
+    border-color: var(--gymit-yellow);
+    background: rgba(255, 193, 7, 0.08);
 }
 
 /* Utility — necessario per text-truncate dentro flex */
@@ -197,4 +234,380 @@ canvas {
     border-radius: 0 12px 12px 0;
     z-index: 0;
     cursor: pointer;
+}
+
+/* Scheda — pallini serie completate */
+.set-dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.set-dot {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    background: #2a2a2a;
+    border: 2px solid #3a3a3a;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.set-dot:hover {
+    border-color: #555;
+}
+
+.set-dot:active {
+    transform: scale(0.88);
+}
+
+.set-dot.completed {
+    background: var(--gymit-yellow);
+    border-color: var(--gymit-yellow);
+}
+
+/* Dashboard — stat tiles */
+.stat-tile {
+    border-radius: 14px;
+}
+
+.stat-tile i {
+    color: var(--gymit-yellow);
+    font-size: 1.1rem;
+}
+
+.stat-tile-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-top: 4px;
+}
+
+.stat-tile-label {
+    color: #aaa;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    margin-top: 2px;
+}
+
+/* Dashboard — gruppo muscolare */
+.muscle-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(255, 193, 7, 0.12);
+    color: var(--gymit-yellow);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.hover-row {
+    transition: background-color 0.15s ease;
+}
+
+.hover-row:hover,
+.hover-row:active {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Dashboard — empty state */
+.empty-state-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: rgba(255, 193, 7, 0.1);
+    color: var(--gymit-yellow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+}
+
+/* Dashboard — frase motivazionale del giorno */
+.motivational-quote {
+    position: relative;
+    background: linear-gradient(160deg, #161616 0%, #0d0d0d 100%);
+    border: 1px solid #262626;
+    border-radius: 18px;
+    padding: 52px 28px;
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
+}
+
+.motivational-quote-mark {
+    position: absolute;
+    top: -28px;
+    left: 4px;
+    font-size: 7rem;
+    line-height: 1;
+    color: rgba(255, 193, 7, 0.07);
+    pointer-events: none;
+}
+
+.motivational-quote-content {
+    position: relative;
+    z-index: 1;
+    max-width: 460px;
+}
+
+.motivational-quote-icon {
+    display: block;
+    font-size: 1.3rem;
+    color: var(--gymit-yellow);
+    margin-bottom: 16px;
+}
+
+.motivational-quote-text {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 800;
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    background: linear-gradient(100deg, #fff 45%, var(--gymit-yellow) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+@media (min-width: 576px) {
+    .motivational-quote-text {
+        font-size: 1.65rem;
+    }
+}
+
+/* Loading states */
+.page-loader-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 13, 13, 0.85);
+    backdrop-filter: blur(1px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.inline-spinner {
+    position: absolute;
+    top: 50%;
+    right: 14px;
+    transform: translateY(-50%);
+    display: none;
+    color: var(--gymit-yellow);
+}
+
+.saving-indicator {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    color: #aaa;
+    font-size: 12px;
+}
+
+.saving-indicator.active {
+    display: flex;
+}
+
+/* Timer di recupero — widget floating */
+.rest-timer-widget {
+    position: fixed;
+    right: 16px;
+    bottom: 80px;
+    z-index: 1040;
+}
+
+@media (min-width: 768px) {
+    .rest-timer-widget {
+        bottom: 24px;
+    }
+}
+
+.rest-timer-fab {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--gymit-yellow);
+    color: #000;
+    border: none;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+}
+
+.rest-timer-fab-ring {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: conic-gradient(var(--gymit-yellow) calc(var(--ring, 1) * 360deg), rgba(255, 255, 255, 0.15) 0deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+    display: none;
+}
+
+.rest-timer-widget.is-active .rest-timer-fab-ring,
+.rest-timer-widget.is-finished .rest-timer-fab-ring {
+    display: block;
+}
+
+.rest-timer-widget.is-finished .rest-timer-fab-ring {
+    background: conic-gradient(#dc3545 360deg, #dc3545 0deg);
+}
+
+.rest-timer-fab-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rest-timer-fab-content i {
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.rest-timer-fab-seconds {
+    display: none;
+    font-weight: 700;
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.rest-timer-widget.is-active .rest-timer-fab-content i,
+.rest-timer-widget.is-finished .rest-timer-fab-content i {
+    display: none;
+}
+
+.rest-timer-widget.is-active .rest-timer-fab-seconds,
+.rest-timer-widget.is-finished .rest-timer-fab-seconds {
+    display: block;
+}
+
+.rest-timer-widget.is-finished .rest-timer-fab {
+    animation: rest-timer-pulse 0.6s ease-in-out infinite;
+    background: #dc3545;
+    color: #fff;
+}
+
+@keyframes rest-timer-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+}
+
+.rest-timer-panel {
+    position: absolute;
+    right: 0;
+    bottom: 68px;
+    width: 300px;
+    max-width: calc(100vw - 32px);
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 16px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.rest-timer-panel[hidden] {
+    display: none;
+}
+
+.rest-timer-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #aaa;
+}
+
+.rest-timer-close {
+    background: transparent;
+    border: none;
+    color: #888;
+    padding: 4px;
+    line-height: 1;
+}
+
+.rest-timer-close:hover {
+    color: #fff;
+}
+
+.rest-timer-display {
+    font-size: 2.5rem;
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.rest-timer-widget.is-finished .rest-timer-display {
+    color: #dc3545;
+}
+
+.rest-timer-progress {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.rest-timer-progress-bar {
+    height: 100%;
+    width: 100%;
+    background: var(--gymit-yellow);
+    border-radius: 999px;
+    transition: width 0.2s linear;
+}
+
+.rest-timer-widget.is-finished .rest-timer-progress-bar {
+    background: #dc3545;
+}
+
+.rest-timer-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.rest-timer-preset {
+    background: #222;
+    border: 1px solid #333;
+    color: #ccc;
+    border-radius: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.rest-timer-preset.active {
+    background: rgba(255, 193, 7, 0.15);
+    border-color: var(--gymit-yellow);
+    color: var(--gymit-yellow);
+}
+
+.rest-timer-custom {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.rest-timer-custom input {
+    width: 80px;
+}
+
+.rest-timer-controls {
+    display: flex;
+    gap: 8px;
 }

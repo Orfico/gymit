@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from decimal import Decimal
 from datetime import date
 
-from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
+from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
 
 
 class ExerciseLogOneRmTest(TestCase):
@@ -80,6 +80,49 @@ class ExerciseLogOneRmTest(TestCase):
         self.assertAlmostEqual(ExerciseLog.epley(60, 15), 90.0, places=1)
 
 
+class BodyweightExerciseLogTest(TestCase):
+    """Gli esercizi a corpo libero non hanno carico né 1RM."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('bwuser', password='testpass')
+        self.exercise = Exercise.objects.create(
+            name='Trazioni',
+            muscle_group=MuscleGroup.BACK,
+            is_bodyweight=True,
+        )
+
+    def test_default_is_bodyweight_false(self):
+        """Gli esercizi esistenti/nuovi restano 'con pesi' per default."""
+        weighted = Exercise.objects.create(name='Panca Bilanciere', muscle_group=MuscleGroup.CHEST)
+        self.assertFalse(weighted.is_bodyweight)
+
+    def test_weight_and_one_rm_stay_none(self):
+        log = ExerciseLog.objects.create(
+            user=self.user, exercise=self.exercise,
+            date=date.today(), sets=3, reps=10,
+        )
+        self.assertIsNone(log.weight)
+        self.assertIsNone(log.one_rm)
+
+    def test_submitted_weight_is_ignored(self):
+        """Anche se arriva un carico residuo, viene forzato a None al salvataggio."""
+        log = ExerciseLog.objects.create(
+            user=self.user, exercise=self.exercise,
+            date=date.today(), sets=3, reps=10,
+            weight=Decimal('50'),
+        )
+        self.assertIsNone(log.weight)
+        self.assertIsNone(log.one_rm)
+
+    def test_str_without_weight(self):
+        log = ExerciseLog.objects.create(
+            user=self.user, exercise=self.exercise,
+            date=date.today(), sets=3, reps=10,
+        )
+        self.assertIn('Trazioni', str(log))
+        self.assertIn('3x10', str(log))
+
+
 class WorkoutPlanTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('planuser', password='testpass')
@@ -100,3 +143,24 @@ class WorkoutPlanTest(TestCase):
         )
         self.assertIn('Squat', str(pe))
         self.assertIn('4x8', str(pe))
+
+
+class PlanFolderTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('folderuser', password='testpass')
+
+    def test_folder_creation(self):
+        folder = PlanFolder.objects.create(user=self.user, name='Forza')
+        self.assertEqual(str(folder), 'Forza (folderuser)')
+
+    def test_plan_folder_defaults_to_none(self):
+        plan = WorkoutPlan.objects.create(user=self.user, name='Scheda sciolta')
+        self.assertIsNone(plan.folder)
+
+    def test_deleting_folder_does_not_delete_plans(self):
+        folder = PlanFolder.objects.create(user=self.user, name='Forza')
+        plan = WorkoutPlan.objects.create(user=self.user, name='Scheda in cartella', folder=folder)
+        folder.delete()
+        plan.refresh_from_db()
+        self.assertIsNone(plan.folder)
+        self.assertTrue(WorkoutPlan.objects.filter(pk=plan.pk).exists())
