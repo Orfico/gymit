@@ -1,5 +1,5 @@
 from django import forms
-from .models import WorkoutPlan, PlannedExercise, ExerciseLog, Exercise
+from .models import WorkoutPlan, PlannedExercise, ExerciseLog, Exercise, PlanFolder
 
 
 class WorkoutPlanForm(forms.ModelForm):
@@ -17,6 +17,18 @@ class WorkoutPlanForm(forms.ModelForm):
                 'placeholder': 'Note opzionali sulla scheda...'
             }),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+
+class PlanFolderForm(forms.ModelForm):
+    class Meta:
+        model = PlanFolder
+        fields = ['name']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'es. Forza'
+            }),
         }
 
 
@@ -52,7 +64,7 @@ class ExerciseLogForm(forms.ModelForm):
         fields = ['exercise', 'date', 'sets', 'reps', 'weight', 'notes']
         widgets = {
             'exercise': forms.Select(attrs={'class': 'form-select'}),
-            'date': forms.DateInput(attrs={
+            'date': forms.DateInput(format='%Y-%m-%d', attrs={
                 'class': 'form-control',
                 'type': 'date'
             }),
@@ -82,13 +94,23 @@ class ExerciseLogForm(forms.ModelForm):
         if user:
             self.fields['exercise'].queryset = Exercise.objects.all()
         self.fields['notes'].required = False
+        self.fields['weight'].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        exercise = cleaned_data.get('exercise')
+        if exercise and exercise.is_bodyweight:
+            cleaned_data['weight'] = None
+        elif exercise and cleaned_data.get('weight') is None:
+            self.add_error('weight', 'Il carico è obbligatorio per gli esercizi con pesi.')
+        return cleaned_data
 
 
 class ExerciseForm(forms.ModelForm):
     """Permette all'utente di aggiungere esercizi personalizzati."""
     class Meta:
         model = Exercise
-        fields = ['name', 'muscle_group', 'description']
+        fields = ['name', 'muscle_group', 'description', 'is_bodyweight']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control',
@@ -100,4 +122,5 @@ class ExerciseForm(forms.ModelForm):
                 'rows': 3,
                 'placeholder': 'Descrizione tecnica opzionale...'
             }),
+            'is_bodyweight': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }

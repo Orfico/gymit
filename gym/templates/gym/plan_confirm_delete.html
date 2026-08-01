@@ -12,7 +12,7 @@
                 <a href="{% url 'plan_detail' plan.pk %}" class="btn btn-outline-secondary">Annulla</a>
                 <form method="post">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-danger fw-bold">Elimina</button>
+                    <button type="submit" class="btn btn-danger fw-bold" data-loading-text="Eliminazione...">Elimina</button>
                 </form>
             </div>
         </div>

@@ -9,6 +9,13 @@ urlpatterns = [
     path('plans/', views.plan_list, name='plan_list'),
     path('plans/create/', views.plan_create, name='plan_create'),
     path('plans/reorder/', views.plan_list_reorder, name='plan_list_reorder'),
+
+    # Cartelle
+    path('plans/folders/create/', views.plan_folder_create, name='plan_folder_create'),
+    path('plans/folders/<int:pk>/rename/', views.plan_folder_rename, name='plan_folder_rename'),
+    path('plans/folders/<int:pk>/delete/', views.plan_folder_delete, name='plan_folder_delete'),
+    path('plans/folders/<int:pk>/reorder/', views.plan_folder_reorder, name='plan_folder_reorder'),
+
     path('plans/<int:pk>/', views.plan_detail, name='plan_detail'),
     path('plans/<int:pk>/edit/', views.plan_edit, name='plan_edit'),
     path('plans/<int:pk>/delete/', views.plan_delete, name='plan_delete'),
@@ -32,6 +39,7 @@ urlpatterns = [
     # Catalogo esercizi
     path('exercises/', views.exercise_list, name='exercise_list'),
     path('exercises/create/', views.exercise_create, name='exercise_create'),
+    path('exercises/<int:pk>/edit/', views.exercise_edit, name='exercise_edit'),
     path('exercises/<int:pk>/delete/', views.exercise_delete, name='exercise_delete'),
 
     # Modifica log allenamento

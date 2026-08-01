@@ -12,7 +12,7 @@
 
     <div class="card bg-black border-secondary mb-3">
         <div class="card-body">
-            <form method="post" enctype="multipart/form-data" id="importForm">
+            <form method="post" enctype="multipart/form-data" id="importForm" data-no-loading>
                 {% csrf_token %}
                 <div class="mb-4">
                     <label class="form-label fw-semibold">File CSV</label>

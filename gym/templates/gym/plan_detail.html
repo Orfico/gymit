@@ -44,9 +44,16 @@
             </small>
             {% endif %}
         </div>
-        <a href="{% url 'planned_exercise_add' plan.pk %}" class="btn btn-outline-warning btn-sm flex-shrink-0">
-            <i class="bi bi-plus-lg"></i> Aggiungi
-        </a>
+        <div class="d-flex gap-2 flex-shrink-0">
+            {% if planned %}
+            <button type="button" id="resetSetsBtn" class="btn btn-outline-secondary btn-sm" title="Azzera le serie completate">
+                <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
+            {% endif %}
+            <a href="{% url 'planned_exercise_add' plan.pk %}" class="btn btn-outline-warning btn-sm">
+                <i class="bi bi-plus-lg"></i> Aggiungi
+            </a>
+        </div>
     </div>
 
     <div id="exercise-list">
@@ -79,6 +86,9 @@
                         </a>
 
                     </div>
+                    <div class="set-dots mt-2 ps-4"
+                         data-planned-exercise-id="{{ pe.pk }}"
+                         data-target-sets="{{ pe.target_sets }}"></div>
                 </div>
             </div>
 
@@ -100,12 +110,18 @@
 {% load static %}
 <script src="{% static 'gym/js/dragdrop.js' %}"></script>
 <script src="{% static 'gym/js/swipe.js' %}"></script>
+<script src="{% static 'gym/js/setdots.js' %}"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         initDragDrop({
             listId: 'exercise-list',
             reorderUrl: '{% url "plan_reorder" plan.pk %}',
             csrfToken: '{{ csrf_token }}',
+        });
+
+        initSetDots({
+            planId: {{ plan.pk }},
+            resetButtonId: 'resetSetsBtn',
         });
 
         initSwipeToDelete({
@@ -122,6 +138,7 @@
                 csrf.value = '{{ csrf_token }}';
                 form.appendChild(csrf);
                 document.body.appendChild(form);
+                showPageLoader('Rimozione in corso...');
                 form.submit();
             }
         });

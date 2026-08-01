@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from datetime import date
 
-from gym.forms import ExerciseLogForm, WorkoutPlanForm, ExerciseForm
+from gym.forms import ExerciseLogForm, WorkoutPlanForm, ExerciseForm, PlanFolderForm
 from gym.models import Exercise, MuscleGroup
 
 
@@ -49,6 +49,43 @@ class ExerciseLogFormTest(TestCase):
         form = ExerciseLogForm(data=data, user=self.user)
         self.assertFalse(form.is_valid())
 
+    def test_missing_weight_invalid_for_weighted_exercise(self):
+        data = self._valid_data(weight='')
+        form = ExerciseLogForm(data=data, user=self.user)
+        self.assertFalse(form.is_valid())
+        self.assertIn('weight', form.errors)
+
+
+class BodyweightExerciseLogFormTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('bwformuser', password='pass')
+        self.exercise = Exercise.objects.create(
+            name='Piegamenti',
+            muscle_group=MuscleGroup.CHEST,
+            is_bodyweight=True,
+        )
+
+    def _data(self, **overrides):
+        data = {
+            'exercise': self.exercise.pk,
+            'date': date.today().isoformat(),
+            'sets': 3,
+            'reps': 20,
+            'weight': '',
+            'notes': '',
+        }
+        data.update(overrides)
+        return data
+
+    def test_valid_without_weight(self):
+        form = ExerciseLogForm(data=self._data(), user=self.user)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_weight_forced_to_none_even_if_submitted(self):
+        form = ExerciseLogForm(data=self._data(weight='50'), user=self.user)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data['weight'])
+
 
 class WorkoutPlanFormTest(TestCase):
     def test_valid_plan_form(self):
@@ -57,6 +94,16 @@ class WorkoutPlanFormTest(TestCase):
 
     def test_empty_name_invalid(self):
         form = WorkoutPlanForm(data={'name': '', 'is_active': True})
+        self.assertFalse(form.is_valid())
+
+
+class PlanFolderFormTest(TestCase):
+    def test_valid_folder_form(self):
+        form = PlanFolderForm(data={'name': 'Forza'})
+        self.assertTrue(form.is_valid())
+
+    def test_empty_name_invalid(self):
+        form = PlanFolderForm(data={'name': ''})
         self.assertFalse(form.is_valid())
 
 
@@ -76,3 +123,24 @@ class ExerciseFormTest(TestCase):
             'muscle_group': MuscleGroup.BACK,
         })
         self.assertFalse(form.is_valid())
+
+    def test_is_bodyweight_saved(self):
+        form = ExerciseForm(data={
+            'name': 'Dip alle parallele',
+            'muscle_group': MuscleGroup.TRICEPS,
+            'description': '',
+            'is_bodyweight': True,
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        exercise = form.save()
+        self.assertTrue(exercise.is_bodyweight)
+
+    def test_is_bodyweight_defaults_false(self):
+        form = ExerciseForm(data={
+            'name': 'Leg Press',
+            'muscle_group': MuscleGroup.LEGS,
+            'description': '',
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        exercise = form.save()
+        self.assertFalse(exercise.is_bodyweight)

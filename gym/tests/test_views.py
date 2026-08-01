@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -9,7 +9,7 @@ from django.test import TestCase, Client, RequestFactory
 from django.urls import reverse
 from django.contrib.auth.models import User
 
-from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
+from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
 from gym.views import log_create as log_create_view, dashboard as dashboard_view
 
 
@@ -18,18 +18,21 @@ from gym.views import log_create as log_create_view, dashboard as dashboard_view
 def make_user(username='testuser', password='testpass'):
     return User.objects.create_user(username, password=password)
 
-def make_exercise(name='Squat', muscle=MuscleGroup.LEGS):
-    return Exercise.objects.create(name=name, muscle_group=muscle)
+def make_exercise(name='Squat', muscle=MuscleGroup.LEGS, is_bodyweight=False):
+    return Exercise.objects.create(name=name, muscle_group=muscle, is_bodyweight=is_bodyweight)
 
-def make_plan(user, name='Test Plan', is_active=True, order=0):
-    return WorkoutPlan.objects.create(user=user, name=name, is_active=is_active, order=order)
+def make_plan(user, name='Test Plan', is_active=True, order=0, folder=None):
+    return WorkoutPlan.objects.create(user=user, name=name, is_active=is_active, order=order, folder=folder)
+
+def make_folder(user, name='Cartella Test', order=0):
+    return PlanFolder.objects.create(user=user, name=name, order=order)
 
 def make_log(user, exercise, weight=100, reps=5, sets=3, log_date=None):
     return ExerciseLog.objects.create(
         user=user, exercise=exercise,
         date=log_date or date.today(),
         sets=sets, reps=reps,
-        weight=Decimal(str(weight)),
+        weight=Decimal(str(weight)) if weight is not None else None,
     )
 
 
@@ -98,6 +101,41 @@ class DashboardTest(TestCase):
         keys = [mg['key'] for mg in self._ctx()['muscle_groups']]
         self.assertEqual(keys[0], 'legs')
         self.assertEqual(keys[1], 'chest')
+
+    def test_stats_keys_present(self):
+        ctx = self._ctx()
+        for key in ('sessions_this_week', 'exercises_tracked', 'active_plans_count', 'greeting'):
+            self.assertIn(key, ctx)
+
+    def test_sessions_this_week_counts_only_current_week(self):
+        ex = make_exercise('Stacco', MuscleGroup.BACK)
+        make_log(self.user, ex, log_date=date.today())
+        make_log(self.user, ex, log_date=date.today() - timedelta(weeks=2))
+        self.assertEqual(self._ctx()['sessions_this_week'], 1)
+
+    def test_exercises_tracked_counts_distinct_exercises_with_logs(self):
+        ex_a = make_exercise('Panca Tracked', MuscleGroup.CHEST)
+        ex_b = make_exercise('Curl Tracked', MuscleGroup.BICEPS)
+        make_log(self.user, ex_a)
+        make_log(self.user, ex_b)
+        self.assertEqual(self._ctx()['exercises_tracked'], 2)
+
+    def test_active_plans_count_excludes_archived(self):
+        make_plan(self.user, name='Attiva', is_active=True)
+        make_plan(self.user, name='Archiviata', is_active=False)
+        self.assertEqual(self._ctx()['active_plans_count'], 1)
+
+    def test_bodyweight_exercise_does_not_crash_dashboard(self):
+        """
+        one_rm è None per i log a corpo libero: l'aggregazione per gruppo
+        muscolare deve saltarli, non andare in errore su float(None).
+        """
+        ex = make_exercise('Trazioni Dash', MuscleGroup.BACK, is_bodyweight=True)
+        make_log(self.user, ex, weight=None, reps=10)
+        make_log(self.user, ex, weight=None, reps=12)
+        ctx = self._ctx()  # non deve sollevare eccezioni
+        keys = [mg['key'] for mg in ctx['muscle_groups']]
+        self.assertNotIn('back', keys)
 
 
 # ─── Log CRUD ─────────────────────────────────────────────────────────────────
@@ -283,6 +321,35 @@ class ProgressViewTest(TestCase):
         self.assertEqual(r.context['log_count'], 2)
 
 
+class BodyweightProgressViewTest(TestCase):
+    def setUp(self):
+        self.user = make_user('bwprog')
+        self.client.login(username='bwprog', password='testpass')
+        self.exercise = make_exercise('Trazioni Prog', MuscleGroup.BACK, is_bodyweight=True)
+
+    def test_loads_without_error(self):
+        make_log(self.user, self.exercise, weight=None, reps=8)
+        make_log(self.user, self.exercise, weight=None, reps=10)
+        r = self.client.get(reverse('exercise_progress', kwargs={'exercise_id': self.exercise.pk}))
+        self.assertEqual(r.status_code, 200)
+
+    def test_best_reps_computed(self):
+        make_log(self.user, self.exercise, weight=None, reps=8)
+        make_log(self.user, self.exercise, weight=None, reps=15)
+        r = self.client.get(reverse('exercise_progress', kwargs={'exercise_id': self.exercise.pk}))
+        self.assertEqual(r.context['best_reps'], 15)
+        self.assertIsNone(r.context['best_one_rm'])
+
+    def test_chart_data_has_null_one_rm_and_weight(self):
+        make_log(self.user, self.exercise, weight=None, reps=8)
+        make_log(self.user, self.exercise, weight=None, reps=10)
+        r = self.client.get(reverse('exercise_progress', kwargs={'exercise_id': self.exercise.pk}))
+        chart_data = json.loads(r.context['chart_data'])
+        self.assertTrue(all(entry['one_rm'] is None for entry in chart_data))
+        self.assertTrue(all(entry['weight'] is None for entry in chart_data))
+        self.assertTrue(all(entry['reps'] for entry in chart_data))
+
+
 class ProgressOverviewTest(TestCase):
     def setUp(self):
         self.user = make_user('overview')
@@ -301,6 +368,15 @@ class ProgressOverviewTest(TestCase):
         make_log(other, ex)
         r = self.client.get(reverse('progress_overview'))
         self.assertEqual(len(r.context['exercises']), 0)
+
+    def test_bodyweight_exercise_shows_best_reps(self):
+        ex = make_exercise('Piegamenti Overview', MuscleGroup.CHEST, is_bodyweight=True)
+        make_log(self.user, ex, weight=None, reps=12)
+        make_log(self.user, ex, weight=None, reps=18)
+        r = self.client.get(reverse('progress_overview'))
+        item = next(i for i in r.context['exercises'] if i['exercise'].pk == ex.pk)
+        self.assertEqual(item['best_reps'], 18)
+        self.assertIsNone(item['best_one_rm'])
 
 
 # ─── Workout Plans ────────────────────────────────────────────────────────────
@@ -333,8 +409,29 @@ class WorkoutPlanTest(TestCase):
         make_plan(self.user, 'Attiva', is_active=True)
         make_plan(self.user, 'Archiviata', is_active=False)
         r = self.client.get(reverse('plan_list'))
-        self.assertEqual(len(r.context['active_plans']), 1)
+        self.assertEqual(len(r.context['root_nodes']), 1)
+        self.assertEqual(r.context['root_nodes'][0]['type'], 'plan')
         self.assertEqual(len(r.context['archived_plans']), 1)
+
+    def test_plan_list_root_nodes_include_folders(self):
+        make_folder(self.user, 'Cartella')
+        make_plan(self.user, 'Sciolta', is_active=True)
+        r = self.client.get(reverse('plan_list'))
+        types = sorted(n['type'] for n in r.context['root_nodes'])
+        self.assertEqual(types, ['folder', 'plan'])
+
+    def test_plan_list_plan_in_folder_not_at_root(self):
+        folder = make_folder(self.user, 'Cartella')
+        make_plan(self.user, 'Dentro', is_active=True, folder=folder)
+        r = self.client.get(reverse('plan_list'))
+        self.assertEqual(len(r.context['root_nodes']), 1)
+        self.assertEqual(r.context['root_nodes'][0]['type'], 'folder')
+
+    def test_has_active_plans_true_even_if_all_in_folders(self):
+        folder = make_folder(self.user, 'Cartella')
+        make_plan(self.user, 'Dentro', is_active=True, folder=folder)
+        r = self.client.get(reverse('plan_list'))
+        self.assertTrue(r.context['has_active_plans'])
 
 
 class PlanReorderTest(TestCase):
@@ -376,6 +473,173 @@ class PlanReorderTest(TestCase):
         self.assertEqual(r.status_code, 404)
 
 
+class PlanListRootReorderTest(TestCase):
+    """plan_list_reorder — riordino del livello radice (cartelle + schede sciolte)."""
+
+    def setUp(self):
+        self.user = make_user('rootreorder')
+        self.client.login(username='rootreorder', password='testpass')
+
+    def _reorder(self, order):
+        return self.client.post(
+            reverse('plan_list_reorder'),
+            data=json.dumps({'order': order}),
+            content_type='application/json',
+        )
+
+    def test_bug_regression_archived_plan_does_not_block_reorder(self):
+        """
+        Prima del fix: un utente con anche solo una scheda archiviata non
+        poteva mai salvare il riordino delle schede attive, perché la vista
+        pretendeva un payload con *tutte* le schede (comprese le
+        archiviate), che il client non invia mai.
+        """
+        active = make_plan(self.user, 'Attiva', is_active=True)
+        make_plan(self.user, 'Archiviata', is_active=False)
+        r = self._reorder([{'type': 'plan', 'id': active.pk}])
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'ok')
+
+    def test_reorder_persists_after_reload(self):
+        """Il caso concreto del bug: l'ordine deve sopravvivere a un nuovo GET."""
+        p1 = make_plan(self.user, 'Prima', is_active=True, order=0)
+        p2 = make_plan(self.user, 'Archiviata', is_active=False, order=1)
+        p3 = make_plan(self.user, 'Seconda', is_active=True, order=2)
+        self._reorder([{'type': 'plan', 'id': p3.pk}, {'type': 'plan', 'id': p1.pk}])
+        r = self.client.get(reverse('plan_list'))
+        ordered_ids = [n['obj'].pk for n in r.context['root_nodes']]
+        self.assertEqual(ordered_ids, [p3.pk, p1.pk])
+
+    def test_mixed_folder_and_plan_payload_updates_order(self):
+        folder = make_folder(self.user, 'Cartella')
+        plan = make_plan(self.user, 'Scheda', is_active=True)
+        r = self._reorder([
+            {'type': 'plan', 'id': plan.pk},
+            {'type': 'folder', 'id': folder.pk},
+        ])
+        self.assertEqual(r.status_code, 200)
+        plan.refresh_from_db()
+        folder.refresh_from_db()
+        self.assertEqual(plan.order, 0)
+        self.assertEqual(folder.order, 1)
+
+    def test_plan_included_here_gets_removed_from_folder(self):
+        """Trascinare una scheda dalla cartella alla radice: folder -> None."""
+        folder = make_folder(self.user, 'Cartella')
+        plan = make_plan(self.user, 'Scheda', is_active=True, folder=folder)
+        self._reorder([{'type': 'plan', 'id': plan.pk}])
+        plan.refresh_from_db()
+        self.assertIsNone(plan.folder)
+
+    def test_partial_payload_is_not_an_error(self):
+        """Diversamente dalla vecchia implementazione: niente equality-check."""
+        p1 = make_plan(self.user, 'Uno', is_active=True)
+        make_plan(self.user, 'Due', is_active=True)
+        r = self._reorder([{'type': 'plan', 'id': p1.pk}])
+        self.assertEqual(r.status_code, 200)
+
+    def test_other_users_plan_rejected(self):
+        other = make_user('rootother')
+        other_plan = make_plan(other, 'Non mia', is_active=True)
+        r = self._reorder([{'type': 'plan', 'id': other_plan.pk}])
+        self.assertEqual(r.status_code, 400)
+
+    def test_other_users_folder_rejected(self):
+        other = make_user('rootother2')
+        other_folder = make_folder(other, 'Non mia')
+        r = self._reorder([{'type': 'folder', 'id': other_folder.pk}])
+        self.assertEqual(r.status_code, 400)
+
+
+class PlanFolderReorderTest(TestCase):
+    """plan_folder_reorder — riordino/spostamento di schede dentro una cartella."""
+
+    def setUp(self):
+        self.user = make_user('folderreorder')
+        self.client.login(username='folderreorder', password='testpass')
+        self.folder = make_folder(self.user, 'Cartella')
+
+    def _reorder(self, folder_pk, order):
+        return self.client.post(
+            reverse('plan_folder_reorder', kwargs={'pk': folder_pk}),
+            data=json.dumps({'order': order}),
+            content_type='application/json',
+        )
+
+    def test_moves_plan_into_folder(self):
+        plan = make_plan(self.user, 'Sciolta', is_active=True)
+        r = self._reorder(self.folder.pk, [plan.pk])
+        self.assertEqual(r.status_code, 200)
+        plan.refresh_from_db()
+        self.assertEqual(plan.folder, self.folder)
+
+    def test_reorders_plans_already_inside(self):
+        p1 = make_plan(self.user, 'Uno', is_active=True, folder=self.folder, order=0)
+        p2 = make_plan(self.user, 'Due', is_active=True, folder=self.folder, order=1)
+        self._reorder(self.folder.pk, [p2.pk, p1.pk])
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p2.order, 0)
+        self.assertEqual(p1.order, 1)
+
+    def test_invalid_folder_404(self):
+        r = self._reorder(9999, [])
+        self.assertEqual(r.status_code, 404)
+
+    def test_other_users_folder_rejected(self):
+        other = make_user('folderother')
+        self.client.login(username='folderother', password='testpass')
+        r = self._reorder(self.folder.pk, [])
+        self.assertEqual(r.status_code, 404)
+
+    def test_other_users_plan_rejected(self):
+        other = make_user('folderother2')
+        other_plan = make_plan(other, 'Non mia', is_active=True)
+        r = self._reorder(self.folder.pk, [other_plan.pk])
+        self.assertEqual(r.status_code, 400)
+
+
+class PlanFolderCrudTest(TestCase):
+    def setUp(self):
+        self.user = make_user('foldercrud')
+        self.client.login(username='foldercrud', password='testpass')
+
+    def test_create_folder(self):
+        r = self.client.post(reverse('plan_folder_create'), {'name': 'Forza'})
+        self.assertRedirects(r, reverse('plan_list'), fetch_redirect_response=False)
+        self.assertEqual(PlanFolder.objects.filter(user=self.user, name='Forza').count(), 1)
+
+    def test_create_empty_name_does_not_create_folder(self):
+        self.client.post(reverse('plan_folder_create'), {'name': ''})
+        self.assertEqual(PlanFolder.objects.count(), 0)
+
+    def test_rename_folder(self):
+        folder = make_folder(self.user, 'Vecchio nome')
+        self.client.post(reverse('plan_folder_rename', kwargs={'pk': folder.pk}), {'name': 'Nuovo nome'})
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, 'Nuovo nome')
+
+    def test_rename_other_users_folder_404(self):
+        other = make_user('cruother')
+        folder = make_folder(other, 'Non mia')
+        r = self.client.post(reverse('plan_folder_rename', kwargs={'pk': folder.pk}), {'name': 'Hacked'})
+        self.assertEqual(r.status_code, 404)
+
+    def test_delete_folder_does_not_delete_plans(self):
+        folder = make_folder(self.user, 'Da eliminare')
+        plan = make_plan(self.user, 'Sopravvive', is_active=True, folder=folder)
+        self.client.post(reverse('plan_folder_delete', kwargs={'pk': folder.pk}))
+        self.assertFalse(PlanFolder.objects.filter(pk=folder.pk).exists())
+        plan.refresh_from_db()
+        self.assertIsNone(plan.folder)
+
+    def test_delete_other_users_folder_404(self):
+        other = make_user('cruother2')
+        folder = make_folder(other, 'Non mia')
+        r = self.client.post(reverse('plan_folder_delete', kwargs={'pk': folder.pk}))
+        self.assertEqual(r.status_code, 404)
+
+
 # ─── Export / Import ──────────────────────────────────────────────────────────
 
 class PlanExportTest(TestCase):
@@ -383,11 +647,18 @@ class PlanExportTest(TestCase):
         self.user = make_user('exporter')
         self.client.login(username='exporter', password='testpass')
         self.plan = make_plan(self.user, 'Push Day')
-        ex = make_exercise('Panca', MuscleGroup.CHEST)
+        self.ex = make_exercise('Panca', MuscleGroup.CHEST)
         PlannedExercise.objects.create(
-            plan=self.plan, exercise=ex,
+            plan=self.plan, exercise=self.ex,
             target_sets=4, target_reps=8, order=0
         )
+
+    def _rows(self):
+        import csv as csv_module
+        import io
+        r = self.client.get(reverse('plan_export', kwargs={'pk': self.plan.pk}))
+        content = r.content.decode('utf-8-sig')
+        return list(csv_module.reader(io.StringIO(content)))
 
     def test_export_returns_csv(self):
         r = self.client.get(reverse('plan_export', kwargs={'pk': self.plan.pk}))
@@ -409,6 +680,26 @@ class PlanExportTest(TestCase):
         self.client.login(username='other6', password='testpass')
         r = self.client.get(reverse('plan_export', kwargs={'pk': self.plan.pk}))
         self.assertEqual(r.status_code, 404)
+
+    def test_export_header_includes_bodyweight_column(self):
+        rows = self._rows()
+        self.assertIn('corpo_libero', rows[1])
+
+    def test_export_weighted_exercise_marked_no(self):
+        rows = self._rows()
+        exercise_row = rows[2]
+        self.assertEqual(exercise_row[0], 'Panca')
+        self.assertEqual(exercise_row[-1], 'no')
+
+    def test_export_bodyweight_exercise_marked_si(self):
+        bw_ex = make_exercise('Trazioni Export', MuscleGroup.BACK, is_bodyweight=True)
+        PlannedExercise.objects.create(
+            plan=self.plan, exercise=bw_ex,
+            target_sets=3, target_reps=10, order=1
+        )
+        rows = self._rows()
+        bw_row = next(row for row in rows[2:] if row[0] == 'Trazioni Export')
+        self.assertEqual(bw_row[-1], 'si')
 
 
 class PlanImportTest(TestCase):
@@ -462,6 +753,40 @@ class PlanImportTest(TestCase):
         r = self.client.get(reverse('plan_import'))
         self.assertEqual(r.status_code, 200)
 
+    def test_import_with_bodyweight_column_creates_bodyweight_exercise(self):
+        csv_file = self._make_csv(rows=[['Trazioni Import', 'back', '3', '10', '0', '', 'si']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Trazioni Import')
+        self.assertTrue(exercise.is_bodyweight)
+
+    def test_import_bodyweight_no_creates_weighted_exercise(self):
+        csv_file = self._make_csv(rows=[['Panca Import', 'chest', '4', '8', '0', '', 'no']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Panca Import')
+        self.assertFalse(exercise.is_bodyweight)
+
+    def test_import_without_bodyweight_column_defaults_to_weighted(self):
+        """Retrocompatibilità con i CSV esportati prima di questa funzionalità."""
+        csv_file = self._make_csv(rows=[['Squat Legacy', 'legs', '4', '6', '0', '']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Squat Legacy')
+        self.assertFalse(exercise.is_bodyweight)
+
+    def test_import_does_not_overwrite_existing_exercise_bodyweight_flag(self):
+        """
+        Il flag corpo_libero, come muscle_group, si applica solo agli
+        esercizi creati automaticamente — non sovrascrive quelli esistenti.
+        """
+        make_exercise('Trazioni Esistente', MuscleGroup.BACK, is_bodyweight=True)
+        csv_file = self._make_csv(rows=[['Trazioni Esistente', 'back', '3', '10', '0', '', 'no']])
+        csv_file.name = 'test.csv'
+        self.client.post(reverse('plan_import'), {'csv_file': csv_file})
+        exercise = Exercise.objects.get(name='Trazioni Esistente')
+        self.assertTrue(exercise.is_bodyweight)
+
 
 # ─── Autocomplete ─────────────────────────────────────────────────────────────
 
@@ -487,6 +812,57 @@ class AutocompleteTest(TestCase):
     def test_requires_login(self):
         self.client.logout()
         r = self.client.get(reverse('exercise_autocomplete') + '?q=pan')
+        self.assertIn(r.status_code, [301, 302])
+
+
+# ─── Exercise Edit ────────────────────────────────────────────────────────────
+
+class ExerciseEditTest(TestCase):
+    def setUp(self):
+        self.user = make_user('ex_editor')
+        self.client.login(username='ex_editor', password='testpass')
+        self.exercise = make_exercise('Squat Originale', MuscleGroup.LEGS)
+
+    def _post(self, **kwargs):
+        data = {'name': 'Squat Originale', 'muscle_group': MuscleGroup.LEGS, 'description': ''}
+        data.update(kwargs)
+        return self.client.post(reverse('exercise_edit', kwargs={'pk': self.exercise.pk}), data)
+
+    def test_updates_name(self):
+        self._post(name='Squat Bulgaro')
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.name, 'Squat Bulgaro')
+
+    def test_updates_muscle_group(self):
+        self._post(muscle_group=MuscleGroup.GLUTES)
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.muscle_group, MuscleGroup.GLUTES)
+
+    def test_edit_predefined_exercise(self):
+        predefined = make_exercise('Predefined Edit', MuscleGroup.CHEST)
+        self.client.post(reverse('exercise_edit', kwargs={'pk': predefined.pk}), {
+            'name': 'Predefined Edit Renamed', 'muscle_group': MuscleGroup.CHEST, 'description': '',
+        })
+        predefined.refresh_from_db()
+        self.assertEqual(predefined.name, 'Predefined Edit Renamed')
+
+    def test_redirects_to_exercise_list_on_success(self):
+        r = self._post(name='Squat Redirect')
+        self.assertRedirects(r, reverse('exercise_list'), fetch_redirect_response=False)
+
+    def test_rejects_duplicate_name(self):
+        make_exercise('Panca Esistente', MuscleGroup.CHEST)
+        self._post(name='Panca Esistente')
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.name, 'Squat Originale')
+
+    def test_get_shows_form_with_existing_data(self):
+        r = self.client.get(reverse('exercise_edit', kwargs={'pk': self.exercise.pk}))
+        self.assertContains(r, 'Squat Originale')
+
+    def test_requires_login(self):
+        self.client.logout()
+        r = self.client.get(reverse('exercise_edit', kwargs={'pk': self.exercise.pk}))
         self.assertIn(r.status_code, [301, 302])
 
 

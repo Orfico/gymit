@@ -6,13 +6,16 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h5 class="fw-bold mb-0"><i class="bi bi-journal-text me-2 text-warning"></i>Le mie schede</h5>
-            {% if active_plans %}
+            {% if root_nodes %}
             <small class="text-secondary" style="font-size:11px;">
-                <i class="bi bi-grip-vertical me-1"></i>Trascina per riordinare
+                <i class="bi bi-grip-vertical me-1"></i>Trascina per riordinare o spostare in una cartella
             </small>
             {% endif %}
         </div>
         <div class="d-flex gap-2">
+            <button type="button" id="newFolderBtn" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-folder-plus"></i>
+            </button>
             <a href="{% url 'plan_import' %}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-upload"></i>
             </a>
@@ -22,39 +25,71 @@
         </div>
     </div>
 
-    <!-- Schede attive — draggable -->
-    <div id="plan-list">
-        {% for plan in active_plans %}
-        <a href="{% url 'plan_detail' plan.pk %}"
-           class="card bg-black border-warning mb-2 text-decoration-none text-light drag-item d-block"
-           data-id="{{ plan.pk }}">
-            <div class="card-body py-2 px-3">
-                <div class="d-flex align-items-center gap-2">
-                    <div class="drag-handle text-secondary flex-shrink-0"
-                         style="cursor:grab; padding:4px 6px; touch-action:none;">
-                        <i class="bi bi-grip-vertical fs-5"></i>
+    <!-- Schede e cartelle attive — draggable -->
+    <div id="plan-tree">
+        {% for node in root_nodes %}
+        {% if node.type == 'folder' %}
+        <div class="plan-folder mb-2" data-type="folder" data-id="{{ node.obj.pk }}" draggable="true">
+            <div class="plan-folder-header d-flex align-items-center gap-2"
+                 data-bs-toggle="collapse" data-bs-target="#folder-{{ node.obj.pk }}">
+                <div class="drag-handle text-secondary flex-shrink-0"
+                     style="cursor:grab; padding:4px 6px; touch-action:none;">
+                    <i class="bi bi-grip-vertical fs-5"></i>
+                </div>
+                <i class="bi bi-folder-fill text-warning"></i>
+                <div class="flex-grow-1 min-w-0">
+                    <div class="fw-bold text-truncate">{{ node.obj.name }}</div>
+                    <div class="small text-secondary">{{ node.obj.plans.all|length }} schede</div>
+                </div>
+                <div class="dropdown" onclick="event.stopPropagation();">
+                    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="dropdown">
+                        <i class="bi bi-three-dots-vertical"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+                        <li>
+                            <button type="button" class="dropdown-item folder-rename-btn"
+                                    data-name="{{ node.obj.name }}"
+                                    data-url="{% url 'plan_folder_rename' node.obj.pk %}">
+                                <i class="bi bi-pencil me-2"></i>Rinomina
+                            </button>
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item text-danger folder-delete-btn"
+                                    data-name="{{ node.obj.name }}"
+                                    data-url="{% url 'plan_folder_delete' node.obj.pk %}">
+                                <i class="bi bi-trash me-2"></i>Elimina
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+                <i class="bi bi-chevron-down text-secondary flex-shrink-0"></i>
+            </div>
+            <div class="collapse" id="folder-{{ node.obj.pk }}">
+                <div class="plan-folder-body mt-2" data-folder-id="{{ node.obj.pk }}"
+                     data-reorder-url="{% url 'plan_folder_reorder' node.obj.pk %}">
+                    {% for plan in node.obj.plans.all %}
+                    {% include 'gym/_plan_card.html' with plan=plan %}
+                    {% empty %}
+                    <div class="text-center text-secondary small py-3 plan-folder-empty-hint">
+                        Cartella vuota — trascina qui una scheda.
                     </div>
-                    <div class="flex-grow-1 min-w-0">
-                        <div class="fw-bold text-truncate">{{ plan.name }}</div>
-                        <div class="small text-secondary">
-                            {{ plan.exercise_count }} esercizi &nbsp;·&nbsp; {{ plan.created_at|date:"d M Y" }}
-                        </div>
-                        {% if plan.description %}
-                        <div class="small text-secondary fst-italic text-truncate">{{ plan.description }}</div>
-                        {% endif %}
-                    </div>
-                    <i class="bi bi-chevron-right text-secondary flex-shrink-0"></i>
+                    {% endfor %}
                 </div>
             </div>
-        </a>
-        {% empty %}
-        <div class="text-center text-secondary py-5">
-            <i class="bi bi-journal-plus fs-1"></i>
-            <p class="mt-3">Nessuna scheda ancora.</p>
-            <a href="{% url 'plan_create' %}" class="btn btn-warning">Crea la prima scheda</a>
         </div>
+        {% else %}
+        {% include 'gym/_plan_card.html' with plan=node.obj %}
+        {% endif %}
         {% endfor %}
     </div>
+
+    {% if not has_active_plans %}
+    <div class="text-center text-secondary py-5">
+        <i class="bi bi-journal-plus fs-1"></i>
+        <p class="mt-3">Nessuna scheda ancora.</p>
+        <a href="{% url 'plan_create' %}" class="btn btn-warning">Crea la prima scheda</a>
+    </div>
+    {% endif %}
 
     <!-- Schede archiviate — collassabile -->
     {% if archived_plans %}
@@ -93,13 +128,74 @@
 
 {% block extra_js %}
 {% load static %}
-<script src="{% static 'gym/js/dragdrop.js' %}"></script>
+<script src="{% static 'gym/js/plan_tree.js' %}"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        initDragDrop({
-            listId: 'plan-list',
-            reorderUrl: '{% url "plan_list_reorder" %}',
+        initPlanTree({
+            treeId: 'plan-tree',
+            reorderRootUrl: '{% url "plan_list_reorder" %}',
             csrfToken: '{{ csrf_token }}',
+        });
+
+        document.getElementById('newFolderBtn').addEventListener('click', function () {
+            const name = prompt('Nome della cartella:');
+            if (!name || !name.trim()) return;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{% url "plan_folder_create" %}';
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrfmiddlewaretoken';
+            csrf.value = '{{ csrf_token }}';
+            const nameInput = document.createElement('input');
+            nameInput.type = 'hidden';
+            nameInput.name = 'name';
+            nameInput.value = name.trim();
+            form.appendChild(csrf);
+            form.appendChild(nameInput);
+            document.body.appendChild(form);
+            showPageLoader('Creazione cartella...');
+            form.submit();
+        });
+
+        document.querySelectorAll('.folder-rename-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const newName = prompt('Rinomina cartella:', btn.dataset.name);
+                if (!newName || !newName.trim() || newName.trim() === btn.dataset.name) return;
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = btn.dataset.url;
+                const csrf = document.createElement('input');
+                csrf.type = 'hidden';
+                csrf.name = 'csrfmiddlewaretoken';
+                csrf.value = '{{ csrf_token }}';
+                const nameInput = document.createElement('input');
+                nameInput.type = 'hidden';
+                nameInput.name = 'name';
+                nameInput.value = newName.trim();
+                form.appendChild(csrf);
+                form.appendChild(nameInput);
+                document.body.appendChild(form);
+                showPageLoader('Rinomina in corso...');
+                form.submit();
+            });
+        });
+
+        document.querySelectorAll('.folder-delete-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                if (!confirm('Eliminare la cartella "' + btn.dataset.name + '"?\nLe schede al suo interno non verranno eliminate, torneranno fuori dalla cartella.')) return;
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = btn.dataset.url;
+                const csrf = document.createElement('input');
+                csrf.type = 'hidden';
+                csrf.name = 'csrfmiddlewaretoken';
+                csrf.value = '{{ csrf_token }}';
+                form.appendChild(csrf);
+                document.body.appendChild(form);
+                showPageLoader('Eliminazione in corso...');
+                form.submit();
+            });
         });
     });
 </script>
