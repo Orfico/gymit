@@ -9,7 +9,7 @@
  * Incrementa CACHE_VERSION ad ogni deploy per invalidare la cache.
  */
 
-const CACHE_VERSION = 'gymit-v3';
+const CACHE_VERSION = 'gymit-v5';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE  = `${CACHE_VERSION}-pages`;
 

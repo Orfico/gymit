@@ -32,10 +32,16 @@ function initExerciseAutocomplete({ selectId, endpointUrl }) {
         display: none; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     `;
 
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner-border spinner-border-sm inline-spinner';
+    spinner.setAttribute('role', 'status');
+    spinner.setAttribute('aria-hidden', 'true');
+
     // Nascondi il select originale — Django lo usa per la submission
     select.style.display = 'none';
     select.insertAdjacentElement('afterend', wrapper);
     wrapper.appendChild(input);
+    wrapper.appendChild(spinner);
     wrapper.appendChild(dropdown);
 
     // Se c'è già un valore preselezionato (es. ?exercise=N), mostralo
@@ -89,6 +95,10 @@ function initExerciseAutocomplete({ selectId, endpointUrl }) {
     function selectExercise(ex) {
         input.value = ex.name;
         select.value = ex.id;
+        // select.value non scatena 'change' da solo (non è un'interazione
+        // utente nativa) — chi usa il widget può ascoltarlo per reagire
+        // alla scelta (es. mostrare/nascondere campi in base all'esercizio).
+        select.dispatchEvent(new Event('change', { bubbles: true }));
         hideDropdown();
     }
 
@@ -107,12 +117,15 @@ function initExerciseAutocomplete({ selectId, endpointUrl }) {
     }
 
     async function search(query) {
+        spinner.style.display = 'inline-block';
         try {
             const res = await fetch(`${endpointUrl}?q=${encodeURIComponent(query)}`);
             const data = await res.json();
             showDropdown(data.results);
         } catch {
             hideDropdown();
+        } finally {
+            spinner.style.display = 'none';
         }
     }
 
