@@ -155,8 +155,45 @@ canvas {
     cursor: grabbing;
 }
 
-#drag-placeholder {
+#drag-placeholder,
+.tree-drag-placeholder {
     pointer-events: none;
+    border: 2px dashed #ffc107;
+    border-radius: 12px;
+    background: rgba(255, 193, 7, 0.05);
+    margin-bottom: 8px;
+}
+
+/* Cartelle schede */
+.plan-folder {
+    border: 1px solid #333;
+    border-radius: 12px;
+    background: #111;
+    transition: opacity 0.15s ease, border-color 0.15s ease;
+    user-select: none;
+}
+
+.plan-folder-header {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.plan-folder-header[aria-expanded="true"] .bi-chevron-down {
+    transform: rotate(180deg);
+}
+
+.plan-folder-header .bi-chevron-down {
+    transition: transform 0.15s ease;
+}
+
+.plan-folder-body {
+    padding: 0 10px 10px;
+    min-height: 12px;
+}
+
+.plan-folder.drag-over {
+    border-color: var(--gymit-yellow);
+    background: rgba(255, 193, 7, 0.08);
 }
 
 /* Utility — necessario per text-truncate dentro flex */

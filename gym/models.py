@@ -43,6 +43,25 @@ class Exercise(models.Model):
         return self.name
 
 
+class PlanFolder(models.Model):
+    """
+    Cartella creata dall'utente per raggruppare le proprie schede.
+    Un solo livello: una cartella contiene schede, non altre cartelle.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='plan_folders')
+    name = models.CharField(max_length=100, verbose_name='Nome cartella')
+    order = models.PositiveIntegerField(default=0, verbose_name='Ordine')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', '-created_at']
+        verbose_name = 'Cartella'
+        verbose_name_plural = 'Cartelle'
+
+    def __str__(self):
+        return f"{self.name} ({self.user.username})"
+
+
 class WorkoutPlan(models.Model):
     """Scheda d'allenamento dell'utente."""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='plans')
@@ -51,6 +70,13 @@ class WorkoutPlan(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True, verbose_name='Attiva')
     order = models.PositiveIntegerField(default=0, verbose_name='Ordine')
+    folder = models.ForeignKey(
+        PlanFolder,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='plans',
+        verbose_name='Cartella',
+    )
 
     class Meta:
         ordering = ['order', '-created_at']

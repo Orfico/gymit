@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db.models import Max, Count
+from django.db.models import Max, Count, Prefetch
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
@@ -13,9 +13,10 @@ from .forms import (
     PlannedExerciseForm,
     ExerciseLogForm,
     ExerciseForm,
+    PlanFolderForm,
 )
 
-from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
+from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -112,9 +113,25 @@ def plan_list(request):
     base_qs = WorkoutPlan.objects.filter(user=request.user).annotate(
         exercise_count=Count('planned_exercises')
     )
+    active_qs = base_qs.filter(is_active=True)
+
+    folders = list(
+        PlanFolder.objects.filter(user=request.user).prefetch_related(
+            Prefetch('plans', queryset=active_qs.order_by('order'))
+        )
+    )
+    unfoldered_plans = active_qs.filter(folder__isnull=True)
+
+    root_nodes = sorted(
+        [{'type': 'folder', 'obj': f} for f in folders]
+        + [{'type': 'plan', 'obj': p} for p in unfoldered_plans],
+        key=lambda n: n['obj'].order
+    )
+
     return render(request, 'gym/plan_list.html', {
-        'active_plans': base_qs.filter(is_active=True),
+        'root_nodes': root_nodes,
         'archived_plans': base_qs.filter(is_active=False),
+        'has_active_plans': active_qs.exists(),
     })
 
 
@@ -165,19 +182,100 @@ def plan_delete(request, pk):
 
 @login_required
 def plan_list_reorder(request):
+    """
+    Riordina il livello radice (cartelle + schede sciolte, interleaved).
+    Payload: {"order": [{"type": "plan"|"folder", "id": N}, ...]}
+    Una scheda inclusa qui torna sempre "sciolta" (folder=None) — è così
+    che si gestisce anche il trascinamento fuori da una cartella.
+    Validazione solo di ownership: un payload parziale non è un errore
+    (a differenza della vecchia implementazione, che pretendeva un match
+    esatto con *tutte* le schede dell'utente comprese le archiviate — bug
+    che faceva fallire ogni riordino appena esisteva una scheda archiviata,
+    dato che il client invia solo le schede attive mostrate in pagina).
+    """
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+        order = data.get('order', [])
+        plan_ids = [entry['id'] for entry in order if entry.get('type') == 'plan']
+        folder_ids = [entry['id'] for entry in order if entry.get('type') == 'folder']
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    valid_plan_ids = set(WorkoutPlan.objects.filter(user=request.user).values_list('id', flat=True))
+    valid_folder_ids = set(PlanFolder.objects.filter(user=request.user).values_list('id', flat=True))
+    if not set(plan_ids) <= valid_plan_ids or not set(folder_ids) <= valid_folder_ids:
+        return JsonResponse({'error': 'Invalid IDs'}, status=400)
+
+    for position, entry in enumerate(order):
+        if entry.get('type') == 'plan':
+            WorkoutPlan.objects.filter(pk=entry['id'], user=request.user).update(order=position, folder=None)
+        elif entry.get('type') == 'folder':
+            PlanFolder.objects.filter(pk=entry['id'], user=request.user).update(order=position)
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+def plan_folder_reorder(request, pk):
+    """
+    Riordina le schede dentro una cartella. Include anche il caso "sposta
+    una scheda dentro questa cartella": basta includerne l'id nel payload.
+    Payload: {"order": [plan_id, ...]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    folder = get_object_or_404(PlanFolder, pk=pk, user=request.user)
     try:
         data = json.loads(request.body)
         ordered_ids = data.get('order', [])
     except (json.JSONDecodeError, AttributeError):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     valid_ids = set(WorkoutPlan.objects.filter(user=request.user).values_list('id', flat=True))
-    if set(ordered_ids) != valid_ids:
+    if not set(ordered_ids) <= valid_ids:
         return JsonResponse({'error': 'Invalid plan IDs'}, status=400)
     for position, plan_id in enumerate(ordered_ids):
-        WorkoutPlan.objects.filter(pk=plan_id, user=request.user).update(order=position)
+        WorkoutPlan.objects.filter(pk=plan_id, user=request.user).update(order=position, folder=folder)
     return JsonResponse({'status': 'ok'})
+
+
+@login_required
+def plan_folder_create(request):
+    if request.method == 'POST':
+        form = PlanFolderForm(request.POST)
+        if form.is_valid():
+            folder = form.save(commit=False)
+            folder.user = request.user
+            last_order = PlanFolder.objects.filter(user=request.user).aggregate(Max('order'))['order__max']
+            folder.order = (last_order or 0) + 1
+            folder.save()
+            messages.success(request, f'Cartella "{folder.name}" creata.')
+        else:
+            messages.error(request, 'Nome cartella non valido.')
+    return redirect('plan_list')
+
+
+@login_required
+def plan_folder_rename(request, pk):
+    folder = get_object_or_404(PlanFolder, pk=pk, user=request.user)
+    if request.method == 'POST':
+        form = PlanFolderForm(request.POST, instance=folder)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Cartella rinominata.')
+        else:
+            messages.error(request, 'Nome cartella non valido.')
+    return redirect('plan_list')
+
+
+@login_required
+def plan_folder_delete(request, pk):
+    folder = get_object_or_404(PlanFolder, pk=pk, user=request.user)
+    if request.method == 'POST':
+        name = folder.name
+        folder.delete()  # SET_NULL sulle schede contenute: non vengono eliminate
+        messages.success(request, f'Cartella "{name}" eliminata. Le schede al suo interno sono tornate fuori.')
+    return redirect('plan_list')
 
 
 # ─── Planned Exercises ────────────────────────────────────────────────────────

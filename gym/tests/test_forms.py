@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from datetime import date
 
-from gym.forms import ExerciseLogForm, WorkoutPlanForm, ExerciseForm
+from gym.forms import ExerciseLogForm, WorkoutPlanForm, ExerciseForm, PlanFolderForm
 from gym.models import Exercise, MuscleGroup
 
 
@@ -94,6 +94,16 @@ class WorkoutPlanFormTest(TestCase):
 
     def test_empty_name_invalid(self):
         form = WorkoutPlanForm(data={'name': '', 'is_active': True})
+        self.assertFalse(form.is_valid())
+
+
+class PlanFolderFormTest(TestCase):
+    def test_valid_folder_form(self):
+        form = PlanFolderForm(data={'name': 'Forza'})
+        self.assertTrue(form.is_valid())
+
+    def test_empty_name_invalid(self):
+        form = PlanFolderForm(data={'name': ''})
         self.assertFalse(form.is_valid())
 
 

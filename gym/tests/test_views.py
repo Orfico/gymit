@@ -9,7 +9,7 @@ from django.test import TestCase, Client, RequestFactory
 from django.urls import reverse
 from django.contrib.auth.models import User
 
-from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
+from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
 from gym.views import log_create as log_create_view, dashboard as dashboard_view
 
 
@@ -21,8 +21,11 @@ def make_user(username='testuser', password='testpass'):
 def make_exercise(name='Squat', muscle=MuscleGroup.LEGS, is_bodyweight=False):
     return Exercise.objects.create(name=name, muscle_group=muscle, is_bodyweight=is_bodyweight)
 
-def make_plan(user, name='Test Plan', is_active=True, order=0):
-    return WorkoutPlan.objects.create(user=user, name=name, is_active=is_active, order=order)
+def make_plan(user, name='Test Plan', is_active=True, order=0, folder=None):
+    return WorkoutPlan.objects.create(user=user, name=name, is_active=is_active, order=order, folder=folder)
+
+def make_folder(user, name='Cartella Test', order=0):
+    return PlanFolder.objects.create(user=user, name=name, order=order)
 
 def make_log(user, exercise, weight=100, reps=5, sets=3, log_date=None):
     return ExerciseLog.objects.create(
@@ -406,8 +409,29 @@ class WorkoutPlanTest(TestCase):
         make_plan(self.user, 'Attiva', is_active=True)
         make_plan(self.user, 'Archiviata', is_active=False)
         r = self.client.get(reverse('plan_list'))
-        self.assertEqual(len(r.context['active_plans']), 1)
+        self.assertEqual(len(r.context['root_nodes']), 1)
+        self.assertEqual(r.context['root_nodes'][0]['type'], 'plan')
         self.assertEqual(len(r.context['archived_plans']), 1)
+
+    def test_plan_list_root_nodes_include_folders(self):
+        make_folder(self.user, 'Cartella')
+        make_plan(self.user, 'Sciolta', is_active=True)
+        r = self.client.get(reverse('plan_list'))
+        types = sorted(n['type'] for n in r.context['root_nodes'])
+        self.assertEqual(types, ['folder', 'plan'])
+
+    def test_plan_list_plan_in_folder_not_at_root(self):
+        folder = make_folder(self.user, 'Cartella')
+        make_plan(self.user, 'Dentro', is_active=True, folder=folder)
+        r = self.client.get(reverse('plan_list'))
+        self.assertEqual(len(r.context['root_nodes']), 1)
+        self.assertEqual(r.context['root_nodes'][0]['type'], 'folder')
+
+    def test_has_active_plans_true_even_if_all_in_folders(self):
+        folder = make_folder(self.user, 'Cartella')
+        make_plan(self.user, 'Dentro', is_active=True, folder=folder)
+        r = self.client.get(reverse('plan_list'))
+        self.assertTrue(r.context['has_active_plans'])
 
 
 class PlanReorderTest(TestCase):
@@ -446,6 +470,173 @@ class PlanReorderTest(TestCase):
         other = make_user('other5')
         self.client.login(username='other5', password='testpass')
         r = self._reorder([self.pe1.pk, self.pe2.pk, self.pe3.pk])
+        self.assertEqual(r.status_code, 404)
+
+
+class PlanListRootReorderTest(TestCase):
+    """plan_list_reorder — riordino del livello radice (cartelle + schede sciolte)."""
+
+    def setUp(self):
+        self.user = make_user('rootreorder')
+        self.client.login(username='rootreorder', password='testpass')
+
+    def _reorder(self, order):
+        return self.client.post(
+            reverse('plan_list_reorder'),
+            data=json.dumps({'order': order}),
+            content_type='application/json',
+        )
+
+    def test_bug_regression_archived_plan_does_not_block_reorder(self):
+        """
+        Prima del fix: un utente con anche solo una scheda archiviata non
+        poteva mai salvare il riordino delle schede attive, perché la vista
+        pretendeva un payload con *tutte* le schede (comprese le
+        archiviate), che il client non invia mai.
+        """
+        active = make_plan(self.user, 'Attiva', is_active=True)
+        make_plan(self.user, 'Archiviata', is_active=False)
+        r = self._reorder([{'type': 'plan', 'id': active.pk}])
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'ok')
+
+    def test_reorder_persists_after_reload(self):
+        """Il caso concreto del bug: l'ordine deve sopravvivere a un nuovo GET."""
+        p1 = make_plan(self.user, 'Prima', is_active=True, order=0)
+        p2 = make_plan(self.user, 'Archiviata', is_active=False, order=1)
+        p3 = make_plan(self.user, 'Seconda', is_active=True, order=2)
+        self._reorder([{'type': 'plan', 'id': p3.pk}, {'type': 'plan', 'id': p1.pk}])
+        r = self.client.get(reverse('plan_list'))
+        ordered_ids = [n['obj'].pk for n in r.context['root_nodes']]
+        self.assertEqual(ordered_ids, [p3.pk, p1.pk])
+
+    def test_mixed_folder_and_plan_payload_updates_order(self):
+        folder = make_folder(self.user, 'Cartella')
+        plan = make_plan(self.user, 'Scheda', is_active=True)
+        r = self._reorder([
+            {'type': 'plan', 'id': plan.pk},
+            {'type': 'folder', 'id': folder.pk},
+        ])
+        self.assertEqual(r.status_code, 200)
+        plan.refresh_from_db()
+        folder.refresh_from_db()
+        self.assertEqual(plan.order, 0)
+        self.assertEqual(folder.order, 1)
+
+    def test_plan_included_here_gets_removed_from_folder(self):
+        """Trascinare una scheda dalla cartella alla radice: folder -> None."""
+        folder = make_folder(self.user, 'Cartella')
+        plan = make_plan(self.user, 'Scheda', is_active=True, folder=folder)
+        self._reorder([{'type': 'plan', 'id': plan.pk}])
+        plan.refresh_from_db()
+        self.assertIsNone(plan.folder)
+
+    def test_partial_payload_is_not_an_error(self):
+        """Diversamente dalla vecchia implementazione: niente equality-check."""
+        p1 = make_plan(self.user, 'Uno', is_active=True)
+        make_plan(self.user, 'Due', is_active=True)
+        r = self._reorder([{'type': 'plan', 'id': p1.pk}])
+        self.assertEqual(r.status_code, 200)
+
+    def test_other_users_plan_rejected(self):
+        other = make_user('rootother')
+        other_plan = make_plan(other, 'Non mia', is_active=True)
+        r = self._reorder([{'type': 'plan', 'id': other_plan.pk}])
+        self.assertEqual(r.status_code, 400)
+
+    def test_other_users_folder_rejected(self):
+        other = make_user('rootother2')
+        other_folder = make_folder(other, 'Non mia')
+        r = self._reorder([{'type': 'folder', 'id': other_folder.pk}])
+        self.assertEqual(r.status_code, 400)
+
+
+class PlanFolderReorderTest(TestCase):
+    """plan_folder_reorder — riordino/spostamento di schede dentro una cartella."""
+
+    def setUp(self):
+        self.user = make_user('folderreorder')
+        self.client.login(username='folderreorder', password='testpass')
+        self.folder = make_folder(self.user, 'Cartella')
+
+    def _reorder(self, folder_pk, order):
+        return self.client.post(
+            reverse('plan_folder_reorder', kwargs={'pk': folder_pk}),
+            data=json.dumps({'order': order}),
+            content_type='application/json',
+        )
+
+    def test_moves_plan_into_folder(self):
+        plan = make_plan(self.user, 'Sciolta', is_active=True)
+        r = self._reorder(self.folder.pk, [plan.pk])
+        self.assertEqual(r.status_code, 200)
+        plan.refresh_from_db()
+        self.assertEqual(plan.folder, self.folder)
+
+    def test_reorders_plans_already_inside(self):
+        p1 = make_plan(self.user, 'Uno', is_active=True, folder=self.folder, order=0)
+        p2 = make_plan(self.user, 'Due', is_active=True, folder=self.folder, order=1)
+        self._reorder(self.folder.pk, [p2.pk, p1.pk])
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p2.order, 0)
+        self.assertEqual(p1.order, 1)
+
+    def test_invalid_folder_404(self):
+        r = self._reorder(9999, [])
+        self.assertEqual(r.status_code, 404)
+
+    def test_other_users_folder_rejected(self):
+        other = make_user('folderother')
+        self.client.login(username='folderother', password='testpass')
+        r = self._reorder(self.folder.pk, [])
+        self.assertEqual(r.status_code, 404)
+
+    def test_other_users_plan_rejected(self):
+        other = make_user('folderother2')
+        other_plan = make_plan(other, 'Non mia', is_active=True)
+        r = self._reorder(self.folder.pk, [other_plan.pk])
+        self.assertEqual(r.status_code, 400)
+
+
+class PlanFolderCrudTest(TestCase):
+    def setUp(self):
+        self.user = make_user('foldercrud')
+        self.client.login(username='foldercrud', password='testpass')
+
+    def test_create_folder(self):
+        r = self.client.post(reverse('plan_folder_create'), {'name': 'Forza'})
+        self.assertRedirects(r, reverse('plan_list'), fetch_redirect_response=False)
+        self.assertEqual(PlanFolder.objects.filter(user=self.user, name='Forza').count(), 1)
+
+    def test_create_empty_name_does_not_create_folder(self):
+        self.client.post(reverse('plan_folder_create'), {'name': ''})
+        self.assertEqual(PlanFolder.objects.count(), 0)
+
+    def test_rename_folder(self):
+        folder = make_folder(self.user, 'Vecchio nome')
+        self.client.post(reverse('plan_folder_rename', kwargs={'pk': folder.pk}), {'name': 'Nuovo nome'})
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, 'Nuovo nome')
+
+    def test_rename_other_users_folder_404(self):
+        other = make_user('cruother')
+        folder = make_folder(other, 'Non mia')
+        r = self.client.post(reverse('plan_folder_rename', kwargs={'pk': folder.pk}), {'name': 'Hacked'})
+        self.assertEqual(r.status_code, 404)
+
+    def test_delete_folder_does_not_delete_plans(self):
+        folder = make_folder(self.user, 'Da eliminare')
+        plan = make_plan(self.user, 'Sopravvive', is_active=True, folder=folder)
+        self.client.post(reverse('plan_folder_delete', kwargs={'pk': folder.pk}))
+        self.assertFalse(PlanFolder.objects.filter(pk=folder.pk).exists())
+        plan.refresh_from_db()
+        self.assertIsNone(plan.folder)
+
+    def test_delete_other_users_folder_404(self):
+        other = make_user('cruother2')
+        folder = make_folder(other, 'Non mia')
+        r = self.client.post(reverse('plan_folder_delete', kwargs={'pk': folder.pk}))
         self.assertEqual(r.status_code, 404)
 
 

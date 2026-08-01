@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from decimal import Decimal
 from datetime import date
 
-from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup
+from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
 
 
 class ExerciseLogOneRmTest(TestCase):
@@ -143,3 +143,24 @@ class WorkoutPlanTest(TestCase):
         )
         self.assertIn('Squat', str(pe))
         self.assertIn('4x8', str(pe))
+
+
+class PlanFolderTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('folderuser', password='testpass')
+
+    def test_folder_creation(self):
+        folder = PlanFolder.objects.create(user=self.user, name='Forza')
+        self.assertEqual(str(folder), 'Forza (folderuser)')
+
+    def test_plan_folder_defaults_to_none(self):
+        plan = WorkoutPlan.objects.create(user=self.user, name='Scheda sciolta')
+        self.assertIsNone(plan.folder)
+
+    def test_deleting_folder_does_not_delete_plans(self):
+        folder = PlanFolder.objects.create(user=self.user, name='Forza')
+        plan = WorkoutPlan.objects.create(user=self.user, name='Scheda in cartella', folder=folder)
+        folder.delete()
+        plan.refresh_from_db()
+        self.assertIsNone(plan.folder)
+        self.assertTrue(WorkoutPlan.objects.filter(pk=plan.pk).exists())

@@ -1,5 +1,5 @@
 from django import forms
-from .models import WorkoutPlan, PlannedExercise, ExerciseLog, Exercise
+from .models import WorkoutPlan, PlannedExercise, ExerciseLog, Exercise, PlanFolder
 
 
 class WorkoutPlanForm(forms.ModelForm):
@@ -17,6 +17,18 @@ class WorkoutPlanForm(forms.ModelForm):
                 'placeholder': 'Note opzionali sulla scheda...'
             }),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+
+class PlanFolderForm(forms.ModelForm):
+    class Meta:
+        model = PlanFolder
+        fields = ['name']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'es. Forza'
+            }),
         }
 
 
