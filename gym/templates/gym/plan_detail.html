@@ -78,7 +78,7 @@
                         <a href="{% url 'exercise_progress' pe.exercise.pk %}?from=plan&plan={{ plan.pk }}"
                         class="flex-grow-1 min-w-0 text-decoration-none text-light">
                             <div class="fw-semibold text-truncate">{{ pe.exercise.name }}</div>
-                            <div class="small text-secondary text-truncate">
+                            <div class="small text-secondary">
                                 {{ pe.target_sets }} serie × {{ pe.target_reps }} reps
                                 {% if pe.notes %} · {{ pe.notes }}{% endif %}
                             </div>
