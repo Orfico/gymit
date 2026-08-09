@@ -922,8 +922,15 @@ def session_create(request):
     if created:
         messages.success(request, f'Allenamento registrato: {plan.name}.')
     else:
-        messages.info(request, 'Questo allenamento era già registrato per oggi.')
+        messages.info(request, 'Questo allenamento era già registrato in questa data.')
 
+    # Chi registra dal calendario deve tornarci, sul mese della sessione.
+    # Whitelist invece di un redirect libero: `next` arriva dal client.
+    if request.POST.get('next') == 'calendar':
+        return redirect(
+            f"{reverse('workout_calendar')}"
+            f"?year={session_date.year}&month={session_date.month}"
+        )
     return redirect('plan_detail', pk=plan.pk)
 
 
@@ -1022,7 +1029,20 @@ def workout_calendar(request):
         weeks_elapsed = (week_start - first_week_start).days // 7 + 1
         weekly_average = round(len(unique_dates) / weeks_elapsed, 1)
 
+    # Schede per il selettore rapido nel modale: poche per utente, quindi
+    # viaggiano con la pagina e il filtro è istantaneo e offline-friendly
+    # (stessa scelta della ricerca esercizi). Le archiviate ci sono ma sono
+    # marcate, così si può registrare un allenamento fatto con una vecchia
+    # scheda senza doverla riattivare.
+    picker_plans = json.dumps([
+        {'id': p.pk, 'name': p.name, 'is_active': p.is_active}
+        for p in WorkoutPlan.objects.filter(user=request.user).order_by(
+            '-is_active', 'order', 'name'
+        )
+    ])
+
     return render(request, 'gym/calendar.html', {
+        'picker_plans': picker_plans,
         'weeks': weeks,
         'year': year,
         'month': month,
@@ -1054,6 +1074,9 @@ def session_day_detail(request, year, month, day):
     return JsonResponse({
         'date': target.isoformat(),
         'date_label': f'{day} {MONTH_NAMES_IT[month - 1]} {year}',
+        # Nel futuro non si registra nulla: il client nasconde il bottone
+        # invece di far scoprire il divieto solo dopo l'invio.
+        'can_log': target <= timezone.localdate(),
         'sessions': [
             {
                 'id': s.id,

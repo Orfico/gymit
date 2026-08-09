@@ -1484,3 +1484,162 @@ class SessionTemplateDownloadTest(TestCase):
         self.client.logout()
         r = self.client.get(reverse('session_template_download'))
         self.assertEqual(r.status_code, 302)
+
+
+class CalendarQuickLogTest(TestCase):
+    """Registrazione di una sessione direttamente dal calendario."""
+
+    def setUp(self):
+        self.user = make_user('quicklog')
+        self.client.login(username='quicklog', password='testpass')
+        self.plan = make_plan(self.user, 'Push Pull Legs')
+
+    # ── Schede disponibili nel selettore ─────────────────────────────
+    def test_picker_includes_active_and_archived_plans(self):
+        make_plan(self.user, 'Vecchia Scheda', is_active=False, order=1)
+        r = self.client.get(reverse('workout_calendar'))
+        names = [p['name'] for p in json.loads(r.context['picker_plans'])]
+        self.assertIn('Push Pull Legs', names)
+        self.assertIn('Vecchia Scheda', names)
+
+    def test_picker_marks_archived_plans(self):
+        make_plan(self.user, 'Vecchia Scheda', is_active=False, order=1)
+        r = self.client.get(reverse('workout_calendar'))
+        by_name = {p['name']: p for p in json.loads(r.context['picker_plans'])}
+        self.assertTrue(by_name['Push Pull Legs']['is_active'])
+        self.assertFalse(by_name['Vecchia Scheda']['is_active'])
+
+    def test_picker_lists_active_plans_first(self):
+        make_plan(self.user, 'Archiviata', is_active=False, order=0)
+        make_plan(self.user, 'Attiva', is_active=True, order=1)
+        r = self.client.get(reverse('workout_calendar'))
+        actives = [p['is_active'] for p in json.loads(r.context['picker_plans'])]
+        self.assertEqual(actives, sorted(actives, reverse=True))
+
+    def test_picker_excludes_other_users_plans(self):
+        other = make_user('altroquicklog')
+        make_plan(other, 'Scheda Altrui')
+        r = self.client.get(reverse('workout_calendar'))
+        names = [p['name'] for p in json.loads(r.context['picker_plans'])]
+        self.assertNotIn('Scheda Altrui', names)
+
+    def test_picker_empty_without_plans(self):
+        WorkoutPlan.objects.filter(user=self.user).delete()
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(json.loads(r.context['picker_plans']), [])
+
+    # ── can_log nel dettaglio giornata ───────────────────────────────
+    def test_day_detail_allows_logging_past_day(self):
+        past = timezone.localdate() - timedelta(days=3)
+        r = self.client.get(
+            reverse('session_day_detail', args=[past.year, past.month, past.day])
+        )
+        self.assertTrue(r.json()['can_log'])
+
+    def test_day_detail_allows_logging_today(self):
+        today = timezone.localdate()
+        r = self.client.get(
+            reverse('session_day_detail', args=[today.year, today.month, today.day])
+        )
+        self.assertTrue(r.json()['can_log'])
+
+    def test_day_detail_forbids_logging_future_day(self):
+        future = timezone.localdate() + timedelta(days=3)
+        r = self.client.get(
+            reverse('session_day_detail', args=[future.year, future.month, future.day])
+        )
+        self.assertFalse(r.json()['can_log'])
+
+    # ── Registrazione dal calendario ─────────────────────────────────
+    def test_logs_session_on_chosen_past_date(self):
+        past = timezone.localdate() - timedelta(days=4)
+        self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk,
+            'date': past.isoformat(),
+            'next': 'calendar',
+        })
+        session = WorkoutSession.objects.get(user=self.user)
+        self.assertEqual(session.date, past)
+        self.assertEqual(session.plan, self.plan)
+
+    def test_redirects_back_to_calendar_on_session_month(self):
+        past = date(2026, 3, 10)
+        r = self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk,
+            'date': past.isoformat(),
+            'next': 'calendar',
+        })
+        self.assertRedirects(
+            r,
+            f"{reverse('workout_calendar')}?year=2026&month=3",
+            fetch_redirect_response=False,
+        )
+
+    def test_without_next_still_redirects_to_plan(self):
+        """Il bottone nella scheda non deve cambiare comportamento."""
+        r = self.client.post(reverse('session_create'), {'plan_id': self.plan.pk})
+        self.assertRedirects(r, reverse('plan_detail', kwargs={'pk': self.plan.pk}))
+
+    def test_unknown_next_value_is_ignored(self):
+        """`next` arriva dal client: solo i valori previsti sono accettati."""
+        r = self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk,
+            'next': 'https://esempio.invalido/phishing',
+        })
+        self.assertRedirects(r, reverse('plan_detail', kwargs={'pk': self.plan.pk}))
+
+    def test_archived_plan_can_be_logged(self):
+        archived = make_plan(self.user, 'Vecchia Scheda', is_active=False, order=1)
+        past = timezone.localdate() - timedelta(days=2)
+        self.client.post(reverse('session_create'), {
+            'plan_id': archived.pk,
+            'date': past.isoformat(),
+            'next': 'calendar',
+        })
+        self.assertTrue(
+            WorkoutSession.objects.filter(plan=archived, date=past).exists()
+        )
+
+    def test_future_date_rejected_from_calendar(self):
+        future = timezone.localdate() + timedelta(days=2)
+        self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk,
+            'date': future.isoformat(),
+            'next': 'calendar',
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_other_users_plan_rejected_from_calendar(self):
+        other = make_user('altroquicklog2')
+        other_plan = make_plan(other, 'Non mia')
+        past = timezone.localdate() - timedelta(days=1)
+        r = self.client.post(reverse('session_create'), {
+            'plan_id': other_plan.pk,
+            'date': past.isoformat(),
+            'next': 'calendar',
+        })
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_duplicate_from_calendar_is_idempotent(self):
+        past = timezone.localdate() - timedelta(days=5)
+        payload = {
+            'plan_id': self.plan.pk,
+            'date': past.isoformat(),
+            'next': 'calendar',
+        }
+        self.client.post(reverse('session_create'), payload)
+        self.client.post(reverse('session_create'), payload)
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 1)
+
+    def test_session_appears_in_calendar_after_logging(self):
+        past = date(2026, 3, 10)
+        self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk,
+            'date': past.isoformat(),
+            'next': 'calendar',
+        })
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 3})
+        marked = [c for week in r.context['weeks'] for c in week if c and c['sessions']]
+        self.assertEqual(len(marked), 1)
+        self.assertEqual(marked[0]['day'], 10)

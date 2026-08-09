@@ -703,3 +703,45 @@ canvas {
 .calendar-cell.is-future {
     opacity: 0.35;
 }
+
+/* Calendario — selettore scheda per la registrazione rapida */
+/* Il footer impila bottone e selettore invece del flex di .modal-footer.
+   `display` è dichiarato qui e non con l'utility .d-block di Bootstrap:
+   quella usa !important e batte l'attributo [hidden], lasciando il bottone
+   visibile anche sulle giornate già registrate. */
+#dayLogFooter {
+    display: block;
+}
+
+#dayLogFooter[hidden] {
+    display: none;
+}
+
+.day-log-results {
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.day-log-option {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 10px 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 10px;
+    color: #ddd;
+    text-align: left;
+    margin-bottom: 6px;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.day-log-option:hover,
+.day-log-option.active {
+    border-color: var(--gymit-yellow);
+    background: rgba(255, 193, 7, 0.08);
+}
+
+.day-log-option mark {
+    border-radius: 3px;
+}

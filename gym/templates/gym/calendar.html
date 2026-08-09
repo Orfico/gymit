@@ -130,6 +130,31 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Registrazione rapida — visibile solo se la giornata è vuota -->
+            <div class="modal-footer border-secondary" id="dayLogFooter" hidden>
+                <button type="button" class="btn btn-warning w-100 fw-bold" id="dayLogBtn">
+                    <i class="bi bi-plus-lg me-2"></i>Registra allenamento
+                </button>
+
+                <div id="dayLogPicker" hidden>
+                    <div class="position-relative mb-2">
+                        <input type="text" id="dayLogSearch" class="form-control"
+                               style="padding-right:38px;" autocomplete="off"
+                               placeholder="Cerca scheda..." aria-label="Cerca scheda">
+                        <i class="bi bi-search position-absolute text-secondary"
+                           style="right:14px; top:50%; transform:translateY(-50%); pointer-events:none;"></i>
+                    </div>
+                    <ul class="list-unstyled mb-0 day-log-results" id="dayLogResults"></ul>
+                </div>
+
+                <form method="post" action="{% url 'session_create' %}" id="dayLogForm" class="d-none">
+                    {% csrf_token %}
+                    <input type="hidden" name="plan_id" id="dayLogPlanId">
+                    <input type="hidden" name="date" id="dayLogDate">
+                    <input type="hidden" name="next" value="calendar">
+                </form>
+            </div>
         </div>
     </div>
 </div>
@@ -145,6 +170,7 @@
             titleId: 'dayDetailTitle',
             bodyId: 'dayDetailBody',
             csrfToken: '{{ csrf_token }}',
+            plans: {{ picker_plans|safe }},
         });
     });
 </script>
