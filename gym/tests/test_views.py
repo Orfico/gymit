@@ -1098,7 +1098,6 @@ class WorkoutCalendarTest(TestCase):
         WorkoutSession.objects.create(user=self.user, date=date(2026, 3, 12), plan_name='A')
         r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 3})
         self.assertEqual(r.context['days_trained_this_month'], 2)
-        self.assertEqual(r.context['total_days_trained'], 2)
 
     def test_prev_next_month_wraps_year(self):
         r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 1})
@@ -1106,31 +1105,90 @@ class WorkoutCalendarTest(TestCase):
         r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 12})
         self.assertEqual((r.context['next_year'], r.context['next_month']), (2027, 1))
 
-    def test_streak_counts_consecutive_days(self):
+    # ── Statistiche settimanali ──────────────────────────────────────────
+    # I test calcolano le date a partire dal lunedì della settimana corrente,
+    # così restano validi qualunque sia il giorno in cui girano.
+
+    @staticmethod
+    def _week_start(reference=None):
+        today = reference or timezone.localdate()
+        return today - timedelta(days=today.weekday())
+
+    def test_days_this_week_counts_current_week_only(self):
         today = timezone.localdate()
-        for offset in (0, 1, 2):
+        week_start = self._week_start(today)
+        # Tutti i giorni di questa settimana già trascorsi, oggi incluso.
+        for i in range(today.weekday() + 1):
             WorkoutSession.objects.create(
-                user=self.user, date=today - timedelta(days=offset), plan_name='A'
+                user=self.user, date=week_start + timedelta(days=i), plan_name='A'
             )
         r = self.client.get(reverse('workout_calendar'))
-        self.assertEqual(r.context['streak'], 3)
+        self.assertEqual(r.context['days_this_week'], today.weekday() + 1)
 
-    def test_streak_survives_if_last_workout_was_yesterday(self):
-        """Una giornata ancora in corso non deve azzerare la serie."""
-        today = timezone.localdate()
+    def test_days_this_week_excludes_previous_week(self):
+        week_start = self._week_start()
+        # Domenica della settimana scorsa: adiacente ma fuori dal conteggio.
         WorkoutSession.objects.create(
-            user=self.user, date=today - timedelta(days=1), plan_name='A'
+            user=self.user, date=week_start - timedelta(days=1), plan_name='A'
         )
         r = self.client.get(reverse('workout_calendar'))
-        self.assertEqual(r.context['streak'], 1)
+        self.assertEqual(r.context['days_this_week'], 0)
 
-    def test_streak_zero_if_gap(self):
-        today = timezone.localdate()
+    def test_days_this_week_counts_distinct_days(self):
+        week_start = self._week_start()
+        WorkoutSession.objects.create(user=self.user, date=week_start, plan_name='A')
+        WorkoutSession.objects.create(user=self.user, date=week_start, plan_name='B')
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['days_this_week'], 1)
+
+    def test_days_this_week_is_independent_of_displayed_month(self):
+        """Le statistiche restano quelle correnti anche navigando nel passato."""
+        week_start = self._week_start()
+        WorkoutSession.objects.create(user=self.user, date=week_start, plan_name='A')
+        r = self.client.get(reverse('workout_calendar'), {'year': 2020, 'month': 1})
+        self.assertEqual(r.context['days_this_week'], 1)
+
+    def test_weekly_average_over_multiple_weeks(self):
+        week_start = self._week_start()
+        # Un allenamento questa settimana e uno la scorsa: 2 giorni / 2 settimane.
+        WorkoutSession.objects.create(user=self.user, date=week_start, plan_name='A')
         WorkoutSession.objects.create(
-            user=self.user, date=today - timedelta(days=5), plan_name='A'
+            user=self.user, date=week_start - timedelta(days=7), plan_name='A'
         )
         r = self.client.get(reverse('workout_calendar'))
-        self.assertEqual(r.context['streak'], 0)
+        self.assertEqual(r.context['weekly_average'], 1.0)
+
+    def test_weekly_average_single_week(self):
+        week_start = self._week_start()
+        for i in range(3):
+            WorkoutSession.objects.create(
+                user=self.user, date=week_start + timedelta(days=i), plan_name=f'P{i}'
+            )
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['weekly_average'], 3.0)
+
+    def test_weekly_average_counts_empty_weeks_in_between(self):
+        """Le settimane senza allenamenti abbassano la media, non spariscono."""
+        week_start = self._week_start()
+        WorkoutSession.objects.create(user=self.user, date=week_start, plan_name='A')
+        WorkoutSession.objects.create(
+            user=self.user, date=week_start - timedelta(days=21), plan_name='A'
+        )
+        # 2 giorni distribuiti su 4 settimane (2 delle quali vuote).
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['weekly_average'], 0.5)
+
+    def test_weekly_average_zero_without_sessions(self):
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['weekly_average'], 0)
+
+    def test_weekly_stats_ignore_other_users(self):
+        other = make_user('altrostats')
+        week_start = self._week_start()
+        WorkoutSession.objects.create(user=other, date=week_start, plan_name='Non mia')
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['days_this_week'], 0)
+        self.assertEqual(r.context['weekly_average'], 0)
 
 
 class SessionDayDetailTest(TestCase):

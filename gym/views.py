@@ -997,7 +997,7 @@ def workout_calendar(request):
     last_day = pycalendar.monthrange(year, month)[1]
     next_month_date = date(year, month, last_day) + timedelta(days=1)
 
-    # Giorni distinti allenati + streak corrente, come colpo d'occhio.
+    # Giorni distinti allenati, base per tutte le statistiche.
     unique_dates = sorted(
         set(
             WorkoutSession.objects
@@ -1007,17 +1007,20 @@ def workout_calendar(request):
         reverse=True,
     )
 
-    streak = 0
-    # Lo streak resta vivo se ci si è allenati oggi oppure ieri: una giornata
-    # ancora in corso non deve azzerare la serie.
-    if unique_dates and unique_dates[0] in (today, today - timedelta(days=1)):
-        cursor = unique_dates[0]
-        for d in unique_dates:
-            if d == cursor:
-                streak += 1
-                cursor -= timedelta(days=1)
-            elif d < cursor:
-                break
+    # Settimana corrente lunedì–domenica, coerente con la griglia del calendario.
+    week_start = today - timedelta(days=today.weekday())
+    days_this_week = sum(1 for d in unique_dates if week_start <= d <= today)
+
+    # Media settimanale sull'intero storico: giorni allenati diviso le settimane
+    # trascorse dal primo allenamento a oggi. La settimana in corso rientra nel
+    # conteggio anche se incompleta — è il numero che l'utente si aspetta di
+    # veder salire man mano che si allena, non una media solo su settimane chiuse.
+    weekly_average = 0
+    if unique_dates:
+        first_date = unique_dates[-1]
+        first_week_start = first_date - timedelta(days=first_date.weekday())
+        weeks_elapsed = (week_start - first_week_start).days // 7 + 1
+        weekly_average = round(len(unique_dates) / weeks_elapsed, 1)
 
     return render(request, 'gym/calendar.html', {
         'weeks': weeks,
@@ -1031,8 +1034,10 @@ def workout_calendar(request):
         'next_month': next_month_date.month,
         'today': today,
         'days_trained_this_month': len(sessions_by_day),
+        'days_this_week': days_this_week,
+        'weekly_average': weekly_average,
+        # Non mostrato come statistica: serve solo a decidere lo stato vuoto.
         'total_days_trained': len(unique_dates),
-        'streak': streak,
         'is_current_month': (year, month) == (today.year, today.month),
     })
 
