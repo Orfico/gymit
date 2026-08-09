@@ -1,0 +1,153 @@
+{% extends 'gym/base.html' %}
+{% load static %}
+{% block title %}Calendario — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0">
+            <i class="bi bi-calendar3 me-2 text-warning"></i>Calendario
+        </h5>
+        <div class="d-flex gap-2">
+            <a href="{% url 'session_template_download' %}"
+               class="btn btn-outline-secondary btn-sm" title="Scarica il modello CSV">
+                <i class="bi bi-file-earmark-arrow-down"></i>
+            </a>
+            <a href="{% url 'session_import' %}"
+               class="btn btn-outline-secondary btn-sm" title="Importa allenamenti da CSV">
+                <i class="bi bi-upload"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- Statistiche -->
+    <div class="row g-2 mb-3">
+        <div class="col-4">
+            <div class="card bg-black border-secondary h-100">
+                <div class="card-body py-2 px-2 text-center">
+                    <div class="fs-4 fw-bold text-warning">{{ streak }}</div>
+                    <div class="text-secondary" style="font-size:11px;">
+                        {% if streak == 1 %}giorno di fila{% else %}giorni di fila{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card bg-black border-secondary h-100">
+                <div class="card-body py-2 px-2 text-center">
+                    <div class="fs-4 fw-bold">{{ days_trained_this_month }}</div>
+                    <div class="text-secondary" style="font-size:11px;">questo mese</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card bg-black border-secondary h-100">
+                <div class="card-body py-2 px-2 text-center">
+                    <div class="fs-4 fw-bold">{{ total_days_trained }}</div>
+                    <div class="text-secondary" style="font-size:11px;">totali</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Navigazione mese -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <a href="?year={{ prev_year }}&month={{ prev_month }}"
+           class="btn btn-outline-secondary btn-sm" aria-label="Mese precedente">
+            <i class="bi bi-chevron-left"></i>
+        </a>
+        <div class="text-center">
+            <span class="fw-bold">{{ month_name }} {{ year }}</span>
+            {% if not is_current_month %}
+            <a href="{% url 'workout_calendar' %}" class="d-block text-warning text-decoration-none"
+               style="font-size:11px;">Torna a oggi</a>
+            {% endif %}
+        </div>
+        <a href="?year={{ next_year }}&month={{ next_month }}"
+           class="btn btn-outline-secondary btn-sm" aria-label="Mese successivo">
+            <i class="bi bi-chevron-right"></i>
+        </a>
+    </div>
+
+    <!-- Griglia calendario -->
+    <div class="calendar-grid mb-2">
+        {% for name in weekday_names %}
+        <div class="calendar-weekday">{{ name }}</div>
+        {% endfor %}
+
+        {% for week in weeks %}
+            {% for cell in week %}
+                {% if cell %}
+                <button type="button"
+                        class="calendar-cell{% if cell.sessions %} has-session{% endif %}{% if cell.is_today %} is-today{% endif %}{% if cell.is_future %} is-future{% endif %}"
+                        data-day="{{ cell.day }}"
+                        data-url="{% url 'session_day_detail' year month cell.day %}"
+                        {% if not cell.sessions %}data-empty="1"{% endif %}
+                        aria-label="{{ cell.day }} {{ month_name }}{% if cell.sessions %} — allenamento registrato{% endif %}">
+                    <span class="calendar-day-number">{{ cell.day }}</span>
+                    {% if cell.sessions %}
+                    <img src="{% static 'gym/icons/icon-192.png' %}"
+                         class="calendar-day-icon" alt="" aria-hidden="true">
+                    {% if cell.sessions|length > 1 %}
+                    <span class="calendar-session-count">{{ cell.sessions|length }}</span>
+                    {% endif %}
+                    {% endif %}
+                </button>
+                {% else %}
+                <div class="calendar-cell calendar-cell-empty"></div>
+                {% endif %}
+            {% endfor %}
+        {% endfor %}
+    </div>
+
+    <div class="text-center text-secondary small mb-3">
+        <i class="bi bi-info-circle me-1"></i>Tocca un giorno per vedere i dettagli
+    </div>
+
+    {% if total_days_trained == 0 %}
+    <div class="text-center text-secondary py-4">
+        <i class="bi bi-calendar-x fs-1"></i>
+        <p class="mt-3 mb-1">Nessun allenamento registrato.</p>
+        <p class="small">Aprendo una scheda potrai registrare la giornata.</p>
+        <a href="{% url 'plan_list' %}" class="btn btn-warning btn-sm">Vai alle schede</a>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Modale dettaglio giornata -->
+<div class="modal fade" id="dayDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-black border-secondary text-light">
+            <div class="modal-header border-secondary">
+                <h6 class="modal-title fw-bold" id="dayDetailTitle">Giornata</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Chiudi"></button>
+            </div>
+            <div class="modal-body" id="dayDetailBody">
+                <div class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-warning" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% load static %}
+<script src="{% static 'gym/js/calendar.js' %}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        initWorkoutCalendar({
+            modalId: 'dayDetailModal',
+            titleId: 'dayDetailTitle',
+            bodyId: 'dayDetailBody',
+            csrfToken: '{{ csrf_token }}',
+        });
+    });
+</script>
+{% endblock %}

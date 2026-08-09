@@ -3,7 +3,12 @@ from django.contrib.auth.models import User
 from decimal import Decimal
 from datetime import date
 
-from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
+from django.db.utils import IntegrityError
+
+from gym.models import (
+    Exercise, WorkoutPlan, PlannedExercise, ExerciseLog,
+    MuscleGroup, PlanFolder, WorkoutSession,
+)
 
 
 class ExerciseLogOneRmTest(TestCase):
@@ -164,3 +169,64 @@ class PlanFolderTest(TestCase):
         plan.refresh_from_db()
         self.assertIsNone(plan.folder)
         self.assertTrue(WorkoutPlan.objects.filter(pk=plan.pk).exists())
+
+
+class WorkoutSessionTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('sessionuser', password='testpass')
+        self.plan = WorkoutPlan.objects.create(user=self.user, name='Push Pull Legs')
+
+    def test_session_creation(self):
+        session = WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 1, 15), plan=self.plan, plan_name=self.plan.name
+        )
+        self.assertIn('Push Pull Legs', str(session))
+        self.assertIn('2026-01-15', str(session))
+
+    def test_plan_name_autofilled_from_plan(self):
+        """plan_name viene derivato dalla scheda se non specificato."""
+        session = WorkoutSession.objects.create(
+            user=self.user, date=date.today(), plan=self.plan
+        )
+        self.assertEqual(session.plan_name, 'Push Pull Legs')
+
+    def test_deleting_plan_keeps_session_history(self):
+        """
+        Lo storico deve sopravvivere alla cancellazione della scheda:
+        il nome resta, il collegamento diventa nullo.
+        """
+        session = WorkoutSession.objects.create(
+            user=self.user, date=date.today(), plan=self.plan
+        )
+        self.plan.delete()
+        session.refresh_from_db()
+        self.assertIsNone(session.plan)
+        self.assertEqual(session.plan_name, 'Push Pull Legs')
+
+    def test_session_without_plan_is_allowed(self):
+        """Le sessioni importate da CSV possono non avere una scheda collegata."""
+        session = WorkoutSession.objects.create(
+            user=self.user, date=date.today(), plan_name='Vecchia scheda'
+        )
+        self.assertIsNone(session.plan)
+        self.assertEqual(session.plan_name, 'Vecchia scheda')
+
+    def test_same_plan_twice_same_day_rejected(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 1, 15), plan_name='A'
+        )
+        with self.assertRaises(IntegrityError):
+            WorkoutSession.objects.create(
+                user=self.user, date=date(2026, 1, 15), plan_name='A'
+            )
+
+    def test_two_different_plans_same_day_allowed(self):
+        WorkoutSession.objects.create(user=self.user, date=date(2026, 1, 15), plan_name='A')
+        WorkoutSession.objects.create(user=self.user, date=date(2026, 1, 15), plan_name='B')
+        self.assertEqual(WorkoutSession.objects.filter(date=date(2026, 1, 15)).count(), 2)
+
+    def test_same_plan_same_day_different_users_allowed(self):
+        other = User.objects.create_user('altrosession', password='testpass')
+        WorkoutSession.objects.create(user=self.user, date=date(2026, 1, 15), plan_name='A')
+        WorkoutSession.objects.create(user=other, date=date(2026, 1, 15), plan_name='A')
+        self.assertEqual(WorkoutSession.objects.count(), 2)

@@ -1,0 +1,90 @@
+{% extends 'gym/base.html' %}
+{% block title %}Importa allenamenti — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+    <div class="d-flex align-items-center mb-4 gap-3">
+        <a href="{% url 'workout_calendar' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <h5 class="mb-0 fw-bold">Importa allenamenti</h5>
+    </div>
+
+    <div class="card bg-black border-secondary mb-3">
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-2 mb-3 pb-3 border-bottom border-secondary">
+                <i class="bi bi-file-earmark-arrow-down fs-4 text-warning flex-shrink-0"></i>
+                <div class="flex-grow-1 min-w-0">
+                    <div class="fw-semibold small">Non sai da dove partire?</div>
+                    <div class="text-secondary" style="font-size:11px;">
+                        Scarica il modello già compilato con le tue schede.
+                    </div>
+                </div>
+                <a href="{% url 'session_template_download' %}"
+                   class="btn btn-outline-warning btn-sm flex-shrink-0">
+                    <i class="bi bi-download me-1"></i>Modello
+                </a>
+            </div>
+
+            <form method="post" enctype="multipart/form-data" id="sessionImportForm" data-no-loading>
+                {% csrf_token %}
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">File CSV</label>
+                    <input type="file"
+                           name="csv_file"
+                           accept=".csv"
+                           class="form-control"
+                           id="csvInput"
+                           required>
+                    <div class="form-text text-secondary mt-1">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Due colonne: data e nome della scheda.
+                    </div>
+                </div>
+
+                <!-- Loader — nascosto finché non si invia -->
+                <div id="importLoader" style="display:none;" class="text-center py-3">
+                    <div class="spinner-border text-warning" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="text-secondary small mt-2">Importazione in corso...</p>
+                </div>
+
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3" id="importBtn">
+                    <i class="bi bi-upload me-2"></i>Importa allenamenti
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card bg-black border-secondary">
+        <div class="card-body">
+            <h6 class="fw-bold small text-uppercase text-secondary mb-2">Formato del file</h6>
+            <pre class="small text-secondary mb-3" style="white-space:pre-wrap;">data,scheda
+2026-01-15,Push Pull Legs
+2026-01-17,Full Body
+16/01/2026,Push Pull Legs</pre>
+            <ul class="small text-secondary mb-0 ps-3">
+                <li>
+                    Il separatore viene riconosciuto da solo: virgola <code>,</code>,
+                    punto e virgola <code>;</code>, tabulazione o barra verticale <code>|</code>.
+                </li>
+                <li>Le date sono accettate come <code>AAAA-MM-GG</code> o <code>GG/MM/AAAA</code>.</li>
+                <li>La riga di intestazione è facoltativa.</li>
+                <li>Le schede che non esistono più vengono comunque registrate col loro nome.</li>
+                <li>Gli allenamenti già presenti non vengono duplicati.</li>
+                <li>Le righe con data futura vengono ignorate.</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('sessionImportForm').addEventListener('submit', function () {
+        document.getElementById('importBtn').style.display = 'none';
+        document.getElementById('importLoader').style.display = 'block';
+    });
+</script>
+{% endblock %}

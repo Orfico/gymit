@@ -1,3 +1,4 @@
+import io
 import json
 from datetime import date, timedelta
 from decimal import Decimal
@@ -9,7 +10,12 @@ from django.test import TestCase, Client, RequestFactory
 from django.urls import reverse
 from django.contrib.auth.models import User
 
-from gym.models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
+from django.utils import timezone
+
+from gym.models import (
+    Exercise, WorkoutPlan, PlannedExercise, ExerciseLog,
+    MuscleGroup, PlanFolder, WorkoutSession,
+)
 from gym.views import log_create as log_create_view, dashboard as dashboard_view
 
 
@@ -43,6 +49,7 @@ class AuthRequiredTest(TestCase):
         'dashboard', 'plan_list', 'plan_create',
         'log_create', 'progress_overview', 'exercise_list',
         'exercise_create', 'plan_import',
+        'workout_calendar', 'session_import', 'session_create',
     ]
 
     def test_redirects_anonymous(self):
@@ -913,3 +920,509 @@ class ServiceWorkerTest(TestCase):
     def test_sw_allowed_header(self):
         r = self.client.get('/sw.js')
         self.assertEqual(r['Service-Worker-Allowed'], '/')
+
+# ─── Sessioni di allenamento ──────────────────────────────────────────────────
+
+class SessionCreateTest(TestCase):
+    def setUp(self):
+        self.user = make_user('sessioncreator')
+        self.client.login(username='sessioncreator', password='testpass')
+        self.plan = make_plan(self.user, 'Push Pull Legs')
+
+    def test_creates_session_for_today(self):
+        self.client.post(reverse('session_create'), {'plan_id': self.plan.pk})
+        session = WorkoutSession.objects.get(user=self.user)
+        self.assertEqual(session.date, timezone.localdate())
+        self.assertEqual(session.plan_name, 'Push Pull Legs')
+        self.assertEqual(session.plan, self.plan)
+
+    def test_duplicate_same_day_is_idempotent(self):
+        """Riconfermare la stessa scheda non deve creare doppioni né errori."""
+        self.client.post(reverse('session_create'), {'plan_id': self.plan.pk})
+        r = self.client.post(reverse('session_create'), {'plan_id': self.plan.pk})
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(r.status_code, 302)
+
+    def test_two_plans_same_day_creates_two_sessions(self):
+        other_plan = make_plan(self.user, 'Full Body', order=1)
+        self.client.post(reverse('session_create'), {'plan_id': self.plan.pk})
+        self.client.post(reverse('session_create'), {'plan_id': other_plan.pk})
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 2)
+
+    def test_other_users_plan_rejected(self):
+        other = make_user('altrosessioncreator')
+        other_plan = make_plan(other, 'Non mia')
+        r = self.client.post(reverse('session_create'), {'plan_id': other_plan.pk})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_get_does_not_create(self):
+        self.client.get(reverse('session_create'))
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_explicit_past_date_accepted(self):
+        past = timezone.localdate() - timedelta(days=3)
+        self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk, 'date': past.isoformat(),
+        })
+        self.assertTrue(WorkoutSession.objects.filter(date=past).exists())
+
+    def test_future_date_rejected(self):
+        future = timezone.localdate() + timedelta(days=1)
+        self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk, 'date': future.isoformat(),
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_invalid_date_rejected(self):
+        self.client.post(reverse('session_create'), {
+            'plan_id': self.plan.pk, 'date': 'non-una-data',
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+
+class SessionDeleteTest(TestCase):
+    def setUp(self):
+        self.user = make_user('sessiondeleter')
+        self.client.login(username='sessiondeleter', password='testpass')
+        self.plan = make_plan(self.user)
+        self.session = WorkoutSession.objects.create(
+            user=self.user, date=timezone.localdate(), plan=self.plan
+        )
+
+    def test_delete_removes_session(self):
+        self.client.post(reverse('session_delete', kwargs={'pk': self.session.pk}))
+        self.assertFalse(WorkoutSession.objects.filter(pk=self.session.pk).exists())
+
+    def test_get_does_not_delete(self):
+        self.client.get(reverse('session_delete', kwargs={'pk': self.session.pk}))
+        self.assertTrue(WorkoutSession.objects.filter(pk=self.session.pk).exists())
+
+    def test_other_users_session_404(self):
+        other = make_user('altrodeleter')
+        self.client.login(username='altrodeleter', password='testpass')
+        r = self.client.post(reverse('session_delete', kwargs={'pk': self.session.pk}))
+        self.assertEqual(r.status_code, 404)
+        self.assertTrue(WorkoutSession.objects.filter(pk=self.session.pk).exists())
+
+
+class PlanDetailSessionStateTest(TestCase):
+    def setUp(self):
+        self.user = make_user('detailsession')
+        self.client.login(username='detailsession', password='testpass')
+        self.plan = make_plan(self.user, 'Push Pull Legs')
+
+    def test_flag_false_when_not_logged(self):
+        r = self.client.get(reverse('plan_detail', kwargs={'pk': self.plan.pk}))
+        self.assertFalse(r.context['session_logged_today'])
+
+    def test_flag_true_after_logging(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=timezone.localdate(), plan=self.plan
+        )
+        r = self.client.get(reverse('plan_detail', kwargs={'pk': self.plan.pk}))
+        self.assertTrue(r.context['session_logged_today'])
+
+    def test_yesterday_session_does_not_set_flag(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=timezone.localdate() - timedelta(days=1), plan=self.plan
+        )
+        r = self.client.get(reverse('plan_detail', kwargs={'pk': self.plan.pk}))
+        self.assertFalse(r.context['session_logged_today'])
+
+    def test_other_plan_session_does_not_set_flag(self):
+        other_plan = make_plan(self.user, 'Full Body', order=1)
+        WorkoutSession.objects.create(
+            user=self.user, date=timezone.localdate(), plan=other_plan
+        )
+        r = self.client.get(reverse('plan_detail', kwargs={'pk': self.plan.pk}))
+        self.assertFalse(r.context['session_logged_today'])
+
+
+# ─── Calendario ───────────────────────────────────────────────────────────────
+
+class WorkoutCalendarTest(TestCase):
+    def setUp(self):
+        self.user = make_user('calendaruser')
+        self.client.login(username='calendaruser', password='testpass')
+
+    def test_calendar_renders(self):
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.context['weekday_names']), 7)
+
+    def test_defaults_to_current_month(self):
+        today = timezone.localdate()
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['year'], today.year)
+        self.assertEqual(r.context['month'], today.month)
+        self.assertTrue(r.context['is_current_month'])
+
+    def test_explicit_month(self):
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 3})
+        self.assertEqual(r.context['year'], 2026)
+        self.assertEqual(r.context['month'], 3)
+        self.assertEqual(r.context['month_name'], 'Marzo')
+
+    def test_invalid_month_falls_back_to_today(self):
+        today = timezone.localdate()
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 99})
+        self.assertEqual(r.context['month'], today.month)
+
+    def test_non_numeric_params_fall_back_to_today(self):
+        today = timezone.localdate()
+        r = self.client.get(reverse('workout_calendar'), {'year': 'abc', 'month': 'xyz'})
+        self.assertEqual(r.context['year'], today.year)
+
+    def test_sessions_appear_in_grid(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan_name='Push'
+        )
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 3})
+        cells = [c for week in r.context['weeks'] for c in week if c and c['sessions']]
+        self.assertEqual(len(cells), 1)
+        self.assertEqual(cells[0]['day'], 10)
+
+    def test_other_users_sessions_not_shown(self):
+        other = make_user('altrocalendar')
+        WorkoutSession.objects.create(
+            user=other, date=date(2026, 3, 10), plan_name='Non mia'
+        )
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 3})
+        cells = [c for week in r.context['weeks'] for c in week if c and c['sessions']]
+        self.assertEqual(cells, [])
+
+    def test_days_trained_counts_distinct_days(self):
+        WorkoutSession.objects.create(user=self.user, date=date(2026, 3, 10), plan_name='A')
+        WorkoutSession.objects.create(user=self.user, date=date(2026, 3, 10), plan_name='B')
+        WorkoutSession.objects.create(user=self.user, date=date(2026, 3, 12), plan_name='A')
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 3})
+        self.assertEqual(r.context['days_trained_this_month'], 2)
+        self.assertEqual(r.context['total_days_trained'], 2)
+
+    def test_prev_next_month_wraps_year(self):
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 1})
+        self.assertEqual((r.context['prev_year'], r.context['prev_month']), (2025, 12))
+        r = self.client.get(reverse('workout_calendar'), {'year': 2026, 'month': 12})
+        self.assertEqual((r.context['next_year'], r.context['next_month']), (2027, 1))
+
+    def test_streak_counts_consecutive_days(self):
+        today = timezone.localdate()
+        for offset in (0, 1, 2):
+            WorkoutSession.objects.create(
+                user=self.user, date=today - timedelta(days=offset), plan_name='A'
+            )
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['streak'], 3)
+
+    def test_streak_survives_if_last_workout_was_yesterday(self):
+        """Una giornata ancora in corso non deve azzerare la serie."""
+        today = timezone.localdate()
+        WorkoutSession.objects.create(
+            user=self.user, date=today - timedelta(days=1), plan_name='A'
+        )
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['streak'], 1)
+
+    def test_streak_zero_if_gap(self):
+        today = timezone.localdate()
+        WorkoutSession.objects.create(
+            user=self.user, date=today - timedelta(days=5), plan_name='A'
+        )
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['streak'], 0)
+
+
+class SessionDayDetailTest(TestCase):
+    def setUp(self):
+        self.user = make_user('daydetail')
+        self.client.login(username='daydetail', password='testpass')
+        self.plan = make_plan(self.user, 'Push Pull Legs')
+
+    def test_returns_sessions_for_day(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan=self.plan
+        )
+        r = self.client.get(reverse('session_day_detail', args=[2026, 3, 10]))
+        data = r.json()
+        self.assertEqual(len(data['sessions']), 1)
+        self.assertEqual(data['sessions'][0]['plan_name'], 'Push Pull Legs')
+        self.assertEqual(data['date_label'], '10 Marzo 2026')
+
+    def test_empty_day_returns_empty_list(self):
+        r = self.client.get(reverse('session_day_detail', args=[2026, 3, 10]))
+        self.assertEqual(r.json()['sessions'], [])
+
+    def test_invalid_date_returns_400(self):
+        r = self.client.get(reverse('session_day_detail', args=[2026, 2, 31]))
+        self.assertEqual(r.status_code, 400)
+
+    def test_session_without_plan_has_no_plan_url(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan_name='Scheda sparita'
+        )
+        r = self.client.get(reverse('session_day_detail', args=[2026, 3, 10]))
+        self.assertIsNone(r.json()['sessions'][0]['plan_url'])
+
+    def test_other_users_sessions_excluded(self):
+        other = make_user('altrodaydetail')
+        WorkoutSession.objects.create(
+            user=other, date=date(2026, 3, 10), plan_name='Non mia'
+        )
+        r = self.client.get(reverse('session_day_detail', args=[2026, 3, 10]))
+        self.assertEqual(r.json()['sessions'], [])
+
+
+# ─── Import CSV allenamenti ───────────────────────────────────────────────────
+
+class SessionImportTest(TestCase):
+    def setUp(self):
+        self.user = make_user('sessionimporter')
+        self.client.login(username='sessionimporter', password='testpass')
+
+    def _csv(self, content):
+        import io
+        f = io.BytesIO(content.encode('utf-8-sig'))
+        f.name = 'sessions.csv'
+        return f
+
+    def test_import_creates_sessions(self):
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('data,scheda\n2026-01-15,Push\n2026-01-17,Pull\n')
+        })
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 2)
+
+    def test_header_is_optional(self):
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('2026-01-15,Push\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+
+    def test_italian_date_format_accepted(self):
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('15/01/2026,Push\n')
+        })
+        session = WorkoutSession.objects.get()
+        self.assertEqual(session.date, date(2026, 1, 15))
+
+    def test_links_existing_plan_by_name(self):
+        plan = make_plan(self.user, 'Push')
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('2026-01-15,Push\n')
+        })
+        self.assertEqual(WorkoutSession.objects.get().plan, plan)
+
+    def test_unknown_plan_stored_as_name_only(self):
+        """Le schede sconosciute non vengono create come WorkoutPlan."""
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('2026-01-15,Scheda Mai Esistita\n')
+        })
+        session = WorkoutSession.objects.get()
+        self.assertIsNone(session.plan)
+        self.assertEqual(session.plan_name, 'Scheda Mai Esistita')
+        self.assertEqual(WorkoutPlan.objects.count(), 0)
+
+    def test_duplicates_in_file_ignored(self):
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('2026-01-15,Push\n2026-01-15,Push\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+
+    def test_existing_session_not_duplicated(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 1, 15), plan_name='Push'
+        )
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('2026-01-15,Push\n2026-01-16,Pull\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 2)
+
+    def test_future_dates_skipped(self):
+        future = (timezone.localdate() + timedelta(days=5)).isoformat()
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv(f'2026-01-15,Push\n{future},Futuro\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+
+    def test_invalid_date_row_skipped_but_others_imported(self):
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('data,scheda\nnon-una-data,Push\n2026-01-16,Pull\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Pull')
+
+    def test_row_without_plan_name_skipped(self):
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('2026-01-15,\n2026-01-16,Pull\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+
+    def test_all_rows_invalid_reports_error(self):
+        r = self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('non-una-data,Push\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+        self.assertContains(r, 'Nessuna riga valida')
+
+    def test_malformed_first_row_is_not_swallowed_as_header(self):
+        """
+        Regressione: una prima riga con data scritta male non deve essere
+        scambiata per intestazione e scartata in silenzio; le altre righe
+        valide vanno comunque importate.
+        """
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('15-gennaio-2026,Push\n2026-01-16,Pull\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+        self.assertTrue(WorkoutSession.objects.filter(plan_name='Pull').exists())
+        self.assertFalse(WorkoutSession.objects.filter(plan_name='Push').exists())
+
+    def test_header_variants_recognised(self):
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('Date,Plan\n2026-01-15,Push\n')
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+
+
+    def test_wrong_extension_rejected(self):
+        import io
+        f = io.BytesIO(b'2026-01-15,Push\n')
+        f.name = 'sessions.txt'
+        r = self.client.post(reverse('session_import'), {'csv_file': f})
+        self.assertContains(r, 'formato CSV')
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_missing_file_rejected(self):
+        r = self.client.post(reverse('session_import'), {})
+        self.assertContains(r, 'Nessun file')
+
+    def test_empty_file_rejected(self):
+        r = self.client.post(reverse('session_import'), {'csv_file': self._csv('')})
+        self.assertContains(r, 'vuoto')
+
+    def test_get_shows_form(self):
+        r = self.client.get(reverse('session_import'))
+        self.assertEqual(r.status_code, 200)
+
+    def test_import_belongs_to_requesting_user(self):
+        other = make_user('altroimporter')
+        self.client.post(reverse('session_import'), {
+            'csv_file': self._csv('2026-01-15,Push\n')
+        })
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(WorkoutSession.objects.filter(user=other).count(), 0)
+
+
+class SessionImportDelimiterTest(TestCase):
+    """Il separatore va riconosciuto da solo: virgola, ; , tab o pipe."""
+
+    def setUp(self):
+        self.user = make_user('delimuser')
+        self.client.login(username='delimuser', password='testpass')
+
+    def _post(self, content):
+        f = io.BytesIO(content.encode('utf-8-sig'))
+        f.name = 'sessions.csv'
+        return self.client.post(reverse('session_import'), {'csv_file': f})
+
+    def test_comma(self):
+        self._post('data,scheda\n2026-01-15,Push\n')
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Push')
+
+    def test_semicolon(self):
+        self._post('data;scheda\n2026-01-15;Push\n')
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Push')
+
+    def test_tab(self):
+        self._post('data\tscheda\n2026-01-15\tPush\n')
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Push')
+
+    def test_pipe(self):
+        self._post('data|scheda\n2026-01-15|Push\n')
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Push')
+
+    def test_semicolon_wins_over_commas_inside_plan_name(self):
+        """
+        Il caso che il semplice conteggio di occorrenze sbaglierebbe: il nome
+        scheda contiene piu virgole di quanti siano i punti e virgola.
+        """
+        self._post('2026-01-15;Push, Pull, Legs\n')
+        session = WorkoutSession.objects.get()
+        self.assertEqual(session.plan_name, 'Push, Pull, Legs')
+        self.assertEqual(session.date, date(2026, 1, 15))
+
+    def test_tab_wins_over_commas_inside_plan_name(self):
+        self._post('2026-01-15\tPush, Pull, Legs\n')
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Push, Pull, Legs')
+
+    def test_quoted_comma_file_still_works(self):
+        """Le virgolette restano il modo canonico di proteggere le virgole."""
+        self._post('2026-01-15,"Push, Pull, Legs"\n')
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Push, Pull, Legs')
+
+    def test_multiple_rows_semicolon(self):
+        self._post('data;scheda\n2026-01-15;Push\n2026-01-16;Pull\n2026-01-17;Legs\n')
+        self.assertEqual(WorkoutSession.objects.count(), 3)
+
+    def test_single_column_file_reports_error(self):
+        r = self._post('2026-01-15\n2026-01-16\n')
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+        self.assertContains(r, 'Nessuna riga valida')
+
+
+class SessionTemplateDownloadTest(TestCase):
+    def setUp(self):
+        self.user = make_user('templateuser')
+        self.client.login(username='templateuser', password='testpass')
+
+    def test_download_returns_csv(self):
+        r = self.client.get(reverse('session_template_download'))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('text/csv', r['Content-Type'])
+        self.assertIn('attachment', r['Content-Disposition'])
+        self.assertIn('.csv', r['Content-Disposition'])
+
+    def test_template_has_header(self):
+        r = self.client.get(reverse('session_template_download'))
+        self.assertIn('data', r.content.decode('utf-8-sig'))
+        self.assertIn('scheda', r.content.decode('utf-8-sig'))
+
+    def test_template_uses_users_plan_names(self):
+        make_plan(self.user, 'La Mia Scheda')
+        body = self.client.get(reverse('session_template_download')).content.decode('utf-8-sig')
+        self.assertIn('La Mia Scheda', body)
+
+    def test_template_without_plans_uses_examples(self):
+        body = self.client.get(reverse('session_template_download')).content.decode('utf-8-sig')
+        self.assertIn('Push Pull Legs', body)
+
+    def test_template_does_not_leak_other_users_plans(self):
+        other = make_user('altrotemplate')
+        make_plan(other, 'Scheda Segreta')
+        body = self.client.get(reverse('session_template_download')).content.decode('utf-8-sig')
+        self.assertNotIn('Scheda Segreta', body)
+
+    def test_template_dates_are_in_the_past(self):
+        """Le righe di esempio non devono essere scartate se reimportate."""
+        make_plan(self.user, 'Scheda A')
+        body = self.client.get(reverse('session_template_download')).content.decode('utf-8-sig')
+        rows = [r for r in body.strip().split('\n')[1:] if r.strip()]
+        self.assertTrue(rows)
+        for row in rows:
+            row_date = date.fromisoformat(row.split(',')[0].strip())
+            self.assertLess(row_date, timezone.localdate())
+
+    def test_downloaded_template_can_be_reimported(self):
+        """Il modello scaricato deve essere accettato dall'import senza modifiche."""
+        make_plan(self.user, 'Scheda A')
+        body = self.client.get(reverse('session_template_download')).content
+        f = io.BytesIO(body)
+        f.name = 'template.csv'
+        self.client.post(reverse('session_import'), {'csv_file': f})
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Scheda A')
+
+    def test_requires_login(self):
+        self.client.logout()
+        r = self.client.get(reverse('session_template_download'))
+        self.assertEqual(r.status_code, 302)

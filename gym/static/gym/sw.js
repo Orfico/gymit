@@ -9,7 +9,7 @@
  * Incrementa CACHE_VERSION ad ogni deploy per invalidare la cache.
  */
 
-const CACHE_VERSION = 'gymit-v5';
+const CACHE_VERSION = 'gymit-v6';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE  = `${CACHE_VERSION}-pages`;
 
@@ -19,6 +19,7 @@ const ALL_CACHES = [STATIC_CACHE, PAGES_CACHE];
 const PRECACHE_PAGES = [
     '/',
     '/plans/',
+    '/calendar/',
     '/progress/',
     '/exercises/',
 ];
@@ -33,6 +34,9 @@ const NEVER_CACHE = [
     /\/planned\/\d+\/remove/,
     /\/log\/\d+\/delete/,
     /\/plans\/\d+\/reorder/,
+    /\/sessions\//,
+    // Dettaglio giornata: JSON che cambia a ogni registrazione/eliminazione
+    /\/calendar\/\d+\/\d+\/\d+/,
     /\/sw\.js/,
 ];
 

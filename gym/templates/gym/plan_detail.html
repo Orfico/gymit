@@ -26,10 +26,26 @@
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item text-danger" href="{% url 'plan_delete' plan.pk %}">
                     <i class="bi bi-trash me-2"></i>Elimina</a></li>
-                
+
             </ul>
         </div>
     </div>
+
+    <!-- Registra allenamento — sempre accessibile, sotto al nome scheda -->
+    <form method="post" action="{% url 'session_create' %}" class="mb-3" id="logSessionForm">
+        {% csrf_token %}
+        <input type="hidden" name="plan_id" value="{{ plan.pk }}">
+        {% if session_logged_today %}
+        <button type="submit" class="btn btn-outline-warning w-100 fw-bold py-2" disabled>
+            <i class="bi bi-check-circle-fill me-2"></i>Allenamento di oggi registrato
+        </button>
+        {% else %}
+        <button type="submit" class="btn btn-warning w-100 fw-bold py-2"
+                data-loading-text="Registrazione...">
+            <i class="bi bi-calendar-check me-2"></i>Registra allenamento di oggi
+        </button>
+        {% endif %}
+    </form>
 
     {% if not plan.is_active %}
     <div class="alert alert-secondary py-2 small">Scheda non attiva</div>
@@ -104,6 +120,34 @@
     </div>
 
 </div>
+
+{% if not session_logged_today %}
+<!-- Modale "ti stai allenando?" — mostrato una volta per scheda al giorno -->
+<div class="modal fade" id="trainingPromptModal" tabindex="-1" aria-hidden="true"
+     data-plan-key="{{ plan.pk }}" data-today="{{ today|date:'Y-m-d' }}">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-black border-secondary text-light">
+            <div class="modal-body text-center p-4">
+                <i class="bi bi-lightning-charge-fill text-warning" style="font-size:2.5rem;"></i>
+                <h5 class="fw-bold mt-3 mb-1">Ti stai allenando?</h5>
+                <p class="text-secondary small mb-4">
+                    Registro questa giornata come allenamento con
+                    <span class="fw-semibold text-light">{{ plan.name }}</span>.
+                </p>
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-warning fw-bold py-2" id="trainingPromptYes">
+                        <i class="bi bi-check-lg me-2"></i>Sì, registra
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="trainingPromptNo"
+                            data-bs-dismiss="modal">
+                        No, sto solo guardando
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -142,6 +186,42 @@
                 form.submit();
             }
         });
+
+        // Modale "ti stai allenando?" — una volta al giorno per scheda.
+        // Il "no" è ricordato in localStorage (per scheda + data): il server
+        // non deve sapere che l'utente ha solo consultato la scheda.
+        var promptEl = document.getElementById('trainingPromptModal');
+        if (promptEl) {
+            var dismissKey = 'gymit_training_prompt_' +
+                promptEl.dataset.planKey + '_' + promptEl.dataset.today;
+
+            if (!localStorage.getItem(dismissKey)) {
+                var promptModal = new bootstrap.Modal(promptEl);
+                promptModal.show();
+
+                document.getElementById('trainingPromptYes').addEventListener('click', function () {
+                    showPageLoader('Registrazione...');
+                    document.getElementById('logSessionForm').submit();
+                });
+
+                document.getElementById('trainingPromptNo').addEventListener('click', function () {
+                    localStorage.setItem(dismissKey, '1');
+                });
+            }
+
+            // Pulizia delle chiavi dei giorni passati: senza questo
+            // localStorage crescerebbe indefinitamente.
+            try {
+                var prefix = 'gymit_training_prompt_';
+                var todayStr = promptEl.dataset.today;
+                for (var i = localStorage.length - 1; i >= 0; i--) {
+                    var key = localStorage.key(i);
+                    if (key && key.indexOf(prefix) === 0 && key.indexOf(todayStr) === -1) {
+                        localStorage.removeItem(key);
+                    }
+                }
+            } catch (e) { /* quota o storage disabilitato: non è critico */ }
+        }
     });
 </script>
 {% endblock %}

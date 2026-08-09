@@ -198,3 +198,56 @@ class ExerciseLog(models.Model):
             f"{self.weight}kg × {self.sets}x{self.reps} "
             f"(1RM: {self.one_rm}kg)"
         )
+
+
+class WorkoutSession(models.Model):
+    """
+    Giornata di allenamento effettuata dall'utente.
+
+    Registra CHE l'utente si è allenato e con quale scheda — è il diario
+    delle presenze, distinto da ExerciseLog che registra i carichi.
+
+    `plan` è opzionale e con SET_NULL, mentre `plan_name` è denormalizzato
+    e sempre valorizzato: lo storico deve sopravvivere alla cancellazione
+    di una scheda, e l'import CSV può contenere schede mai esistite in app.
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='workout_sessions'
+    )
+    date = models.DateField(verbose_name='Data')
+    plan = models.ForeignKey(
+        WorkoutPlan,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='sessions',
+        verbose_name='Scheda'
+    )
+    plan_name = models.CharField(max_length=100, verbose_name='Nome scheda')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-id']
+        verbose_name = 'Sessione di allenamento'
+        verbose_name_plural = 'Sessioni di allenamento'
+        indexes = [
+            models.Index(fields=['user', '-date']),
+        ]
+        constraints = [
+            # Una stessa scheda non può essere registrata due volte nello
+            # stesso giorno; giorni con più schede diverse sono permessi.
+            models.UniqueConstraint(
+                fields=['user', 'date', 'plan_name'],
+                name='unique_session_per_plan_per_day',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # plan_name segue sempre la scheda collegata, se c'è.
+        if self.plan and not self.plan_name:
+            self.plan_name = self.plan.name
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.date} — {self.plan_name} ({self.user.username})"

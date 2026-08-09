@@ -1,12 +1,16 @@
+import io
 import json
-from datetime import date, timedelta
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Max, Count, Prefetch
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from .forms import (
     WorkoutPlanForm,
@@ -16,7 +20,10 @@ from .forms import (
     PlanFolderForm,
 )
 
-from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, MuscleGroup, PlanFolder
+from .models import (
+    Exercise, WorkoutPlan, PlannedExercise, ExerciseLog,
+    MuscleGroup, PlanFolder, WorkoutSession,
+)
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -154,9 +161,16 @@ def plan_create(request):
 def plan_detail(request, pk):
     plan = get_object_or_404(WorkoutPlan, pk=pk, user=request.user)
     planned = plan.planned_exercises.select_related('exercise').all()
+    today = timezone.localdate()
     return render(request, 'gym/plan_detail.html', {
         'plan': plan,
         'planned': planned,
+        # Se la sessione di oggi è già registrata il modale non deve
+        # comparire e il bottone mostra lo stato "già registrato".
+        'session_logged_today': WorkoutSession.objects.filter(
+            user=request.user, date=today, plan_name=plan.name
+        ).exists(),
+        'today': today,
     })
 
 
@@ -748,3 +762,432 @@ def plan_import(request):
         messages.error(request, f'Errore durante l\'importazione: {str(e)}')
         return render(request, 'gym/plan_import.html')
 
+
+
+# ─── Sessioni di allenamento e calendario ─────────────────────────────────────
+
+# Etichette in italiano — LANGUAGE_CODE è it-it ma il modulo calendar di
+# Python usa la locale di sistema, che sul server non è garantita.
+MONTH_NAMES_IT = [
+    'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
+    'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
+]
+WEEKDAY_NAMES_IT = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
+
+# Etichette che identificano una riga di intestazione nel CSV importato.
+HEADER_LABELS = {'data', 'date', 'giorno', 'data allenamento'}
+
+
+def _parse_session_date(raw):
+    """
+    Accetta sia il formato ISO (AAAA-MM-GG) sia quello italiano (GG/MM/AAAA),
+    perché i CSV esportati da Excel in locale italiana usano il secondo.
+    """
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    parsed = parse_date(raw)
+    if parsed:
+        return parsed
+    for fmt in ('%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+# Separatori accettati nei CSV importati: la virgola è lo standard, ma
+# Excel in locale italiana esporta col punto e virgola, e capita di ricevere
+# file separati da tabulazione o pipe.
+CSV_DELIMITERS = [',', ';', '\t', '|']
+
+
+# Come mostrare i separatori nei messaggi d'errore.
+DELIMITER_LABELS = {',': 'virgola', ';': 'punto e virgola', '\t': 'tabulazione', '|': 'barra verticale'}
+
+
+def _detect_delimiter(content):
+    """
+    Sceglie il separatore provando davvero a interpretare il file con
+    ciascun candidato e premiando quello che produce più righe valide
+    (almeno due colonne e una data riconoscibile nella prima).
+
+    Contare le occorrenze non basterebbe: in un file separato da punto e
+    virgola un nome scheda come "Push, Pull, Legs" contiene più virgole che
+    punti e virgola e farebbe scegliere il separatore sbagliato. csv.Sniffer
+    a sua volta è inaffidabile su file di due sole colonne.
+    """
+    import csv
+
+    best_delimiter, best_score = ',', -1
+    for delimiter in CSV_DELIMITERS:
+        rows = [
+            row for row in csv.reader(io.StringIO(content), delimiter=delimiter)
+            if any(cell.strip() for cell in row)
+        ]
+        # Una riga vale se ha due colonne e una data leggibile: è esattamente
+        # lo schema che l'import si aspetta.
+        score = sum(
+            1 for row in rows
+            if len(row) >= 2 and _parse_session_date(row[0]) is not None
+        )
+        # A parità di righe valide vince il primo candidato (la virgola),
+        # che è il formato canonico del template scaricabile.
+        if score > best_score:
+            best_delimiter, best_score = delimiter, score
+
+    if best_score > 0:
+        return best_delimiter
+
+    # Nessun candidato produce righe valide (es. solo intestazione, o date
+    # tutte malformate): ripiega su quello che almeno spezza le righe in due
+    # colonne, così l'utente riceve errori di data invece di "manca una colonna".
+    for delimiter in CSV_DELIMITERS:
+        rows = [
+            row for row in csv.reader(io.StringIO(content), delimiter=delimiter)
+            if any(cell.strip() for cell in row)
+        ]
+        if rows and all(len(row) >= 2 for row in rows):
+            return delimiter
+
+    return ','
+
+
+@login_required
+def session_template_download(request):
+    """Scarica un CSV di esempio già nel formato accettato dall'import."""
+    import csv
+
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = 'attachment; filename="gymit_template_allenamenti.csv"'
+    response.write('\ufeff')  # BOM per compatibilità Excel
+
+    # Il template usa la virgola: è il separatore più portabile e l'import
+    # riconosce comunque gli altri se l'utente risalva il file con Excel.
+    writer = csv.writer(response)
+    writer.writerow(['data', 'scheda'])
+
+    today = timezone.localdate()
+    plan_names = list(
+        WorkoutPlan.objects
+        .filter(user=request.user)
+        .order_by('order')
+        .values_list('name', flat=True)[:3]
+    ) or ['Push Pull Legs', 'Full Body']
+
+    # Righe di esempio con le schede reali dell'utente, così deve solo
+    # correggere le date invece di indovinare i nomi.
+    for i, name in enumerate(plan_names):
+        writer.writerow([(today - timedelta(days=i * 2 + 2)).isoformat(), name])
+
+    return response
+
+
+@login_required
+def session_create(request):
+    """
+    Registra una sessione di allenamento (dal modale o dal bottone).
+
+    Idempotente: riconfermare la stessa scheda nello stesso giorno non crea
+    duplicati né produce un errore — l'utente ottiene comunque il risultato
+    che voleva.
+    """
+    if request.method != 'POST':
+        return redirect('plan_list')
+
+    plan = get_object_or_404(
+        WorkoutPlan, pk=request.POST.get('plan_id'), user=request.user
+    )
+
+    session_date = timezone.localdate()
+    raw_date = request.POST.get('date', '').strip()
+    if raw_date:
+        parsed = _parse_session_date(raw_date)
+        if parsed is None:
+            messages.error(request, 'Data non valida.')
+            return redirect('plan_detail', pk=plan.pk)
+        if parsed > timezone.localdate():
+            messages.error(request, 'Non puoi registrare un allenamento nel futuro.')
+            return redirect('plan_detail', pk=plan.pk)
+        session_date = parsed
+
+    _, created = WorkoutSession.objects.get_or_create(
+        user=request.user,
+        date=session_date,
+        plan_name=plan.name,
+        defaults={'plan': plan},
+    )
+
+    if created:
+        messages.success(request, f'Allenamento registrato: {plan.name}.')
+    else:
+        messages.info(request, 'Questo allenamento era già registrato per oggi.')
+
+    return redirect('plan_detail', pk=plan.pk)
+
+
+@login_required
+def session_delete(request, pk):
+    """Elimina una sessione registrata (dal modale del calendario)."""
+    session = get_object_or_404(WorkoutSession, pk=pk, user=request.user)
+    if request.method != 'POST':
+        return redirect('workout_calendar')
+
+    session_date = session.date
+    session.delete()
+    messages.success(request, 'Sessione eliminata.')
+    return redirect(
+        f"{reverse('workout_calendar')}?year={session_date.year}&month={session_date.month}"
+    )
+
+
+@login_required
+def workout_calendar(request):
+    """
+    Calendario mensile delle giornate di allenamento.
+
+    La griglia (settimana lun–dom) è costruita lato server: il template resta
+    dichiarativo e il calendario si vede anche senza JavaScript.
+    """
+    import calendar as pycalendar
+
+    today = timezone.localdate()
+
+    try:
+        year = int(request.GET.get('year', today.year))
+        month = int(request.GET.get('month', today.month))
+    except (TypeError, ValueError):
+        year, month = today.year, today.month
+
+    # Fuori range → torna al mese corrente invece di sollevare eccezioni.
+    if not (1 <= month <= 12) or not (1900 <= year <= 2200):
+        year, month = today.year, today.month
+
+    sessions = (
+        WorkoutSession.objects
+        .filter(user=request.user, date__year=year, date__month=month)
+        .order_by('date', 'id')
+    )
+
+    # Mappa giorno → sessioni, per marcare le celle senza query per cella.
+    sessions_by_day = defaultdict(list)
+    for session in sessions:
+        sessions_by_day[session.date.day].append(session)
+
+    cal = pycalendar.Calendar(firstweekday=0)  # 0 = lunedì
+    weeks = []
+    for week in cal.monthdayscalendar(year, month):
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(None)  # cella vuota (mese precedente/successivo)
+                continue
+            cell_date = date(year, month, day)
+            row.append({
+                'day': day,
+                'date': cell_date,
+                'sessions': sessions_by_day.get(day, []),
+                'is_today': cell_date == today,
+                'is_future': cell_date > today,
+            })
+        weeks.append(row)
+
+    prev_month_date = date(year, month, 1) - timedelta(days=1)
+    last_day = pycalendar.monthrange(year, month)[1]
+    next_month_date = date(year, month, last_day) + timedelta(days=1)
+
+    # Giorni distinti allenati + streak corrente, come colpo d'occhio.
+    unique_dates = sorted(
+        set(
+            WorkoutSession.objects
+            .filter(user=request.user)
+            .values_list('date', flat=True)
+        ),
+        reverse=True,
+    )
+
+    streak = 0
+    # Lo streak resta vivo se ci si è allenati oggi oppure ieri: una giornata
+    # ancora in corso non deve azzerare la serie.
+    if unique_dates and unique_dates[0] in (today, today - timedelta(days=1)):
+        cursor = unique_dates[0]
+        for d in unique_dates:
+            if d == cursor:
+                streak += 1
+                cursor -= timedelta(days=1)
+            elif d < cursor:
+                break
+
+    return render(request, 'gym/calendar.html', {
+        'weeks': weeks,
+        'year': year,
+        'month': month,
+        'month_name': MONTH_NAMES_IT[month - 1],
+        'weekday_names': WEEKDAY_NAMES_IT,
+        'prev_year': prev_month_date.year,
+        'prev_month': prev_month_date.month,
+        'next_year': next_month_date.year,
+        'next_month': next_month_date.month,
+        'today': today,
+        'days_trained_this_month': len(sessions_by_day),
+        'total_days_trained': len(unique_dates),
+        'streak': streak,
+        'is_current_month': (year, month) == (today.year, today.month),
+    })
+
+
+@login_required
+def session_day_detail(request, year, month, day):
+    """Dettaglio JSON di una giornata — alimenta il modale del calendario."""
+    try:
+        target = date(year, month, day)
+    except ValueError:
+        return JsonResponse({'error': 'Data non valida.'}, status=400)
+
+    sessions = WorkoutSession.objects.filter(user=request.user, date=target)
+    return JsonResponse({
+        'date': target.isoformat(),
+        'date_label': f'{day} {MONTH_NAMES_IT[month - 1]} {year}',
+        'sessions': [
+            {
+                'id': s.id,
+                'plan_name': s.plan_name,
+                'plan_id': s.plan_id,
+                'delete_url': reverse('session_delete', args=[s.id]),
+                'plan_url': reverse('plan_detail', args=[s.plan_id]) if s.plan_id else None,
+            }
+            for s in sessions
+        ],
+    })
+
+
+@login_required
+def session_import(request):
+    """
+    Importa allenamenti passati da CSV (colonne: data, nome scheda).
+
+    Le schede sconosciute non vengono create: la sessione conserva solo il
+    nome, così lo storico è completo senza riempire la lista schede di voci
+    fantasma provenienti dal passato.
+    """
+    import csv
+    import io
+
+    if request.method != 'POST':
+        return render(request, 'gym/session_import.html')
+
+    csv_file = request.FILES.get('csv_file')
+    if not csv_file:
+        messages.error(request, 'Nessun file selezionato.')
+        return render(request, 'gym/session_import.html')
+
+    if not csv_file.name.lower().endswith('.csv'):
+        messages.error(request, 'Il file deve essere in formato CSV.')
+        return render(request, 'gym/session_import.html')
+
+    try:
+        content = csv_file.read().decode('utf-8-sig')  # utf-8-sig gestisce il BOM
+    except UnicodeDecodeError:
+        messages.error(request, 'Impossibile leggere il file: salvalo con codifica UTF-8.')
+        return render(request, 'gym/session_import.html')
+
+    delimiter = _detect_delimiter(content)
+    reader = csv.reader(io.StringIO(content), delimiter=delimiter)
+    rows = [row for row in reader if any(cell.strip() for cell in row)]
+
+    if not rows:
+        messages.error(request, 'Il file CSV è vuoto.')
+        return render(request, 'gym/session_import.html')
+
+    # Intestazione opzionale: la riconosco dall'etichetta, non dal fatto che
+    # la prima cella non sia una data — altrimenti una riga con data scritta
+    # male verrebbe scartata in silenzio invece di essere segnalata.
+    if rows[0] and rows[0][0].strip().lower() in HEADER_LABELS:
+        rows = rows[1:]
+
+    if not rows:
+        messages.error(request, 'Il file CSV non contiene righe di dati.')
+        return render(request, 'gym/session_import.html')
+
+    today = timezone.localdate()
+    # Le schede esistenti vengono ricollegate per nome, così il calendario
+    # può linkare alla scheda quando questa esiste ancora.
+    plans_by_name = {p.name: p for p in WorkoutPlan.objects.filter(user=request.user)}
+
+    to_create = []
+    seen = set()
+    errors = []
+    skipped_future = 0
+
+    for i, row in enumerate(rows, start=1):
+        if len(row) < 2:
+            errors.append(
+                f'Riga {i}: servono due colonne (data e nome scheda) '
+                f'separate da {DELIMITER_LABELS.get(delimiter, delimiter)}.'
+            )
+            continue
+
+        raw_date = row[0].strip()
+        plan_name = row[1].strip()
+
+        if not plan_name:
+            errors.append(f'Riga {i}: nome scheda mancante.')
+            continue
+        if len(plan_name) > 100:
+            errors.append(f'Riga {i}: nome scheda troppo lungo (max 100 caratteri).')
+            continue
+
+        parsed = _parse_session_date(raw_date)
+        if parsed is None:
+            errors.append(
+                f'Riga {i}: data non valida (usa AAAA-MM-GG oppure GG/MM/AAAA).'
+            )
+            continue
+        if parsed > today:
+            skipped_future += 1
+            continue
+
+        key = (parsed, plan_name)
+        if key in seen:
+            continue  # duplicato interno al file
+        seen.add(key)
+
+        to_create.append(WorkoutSession(
+            user=request.user,
+            date=parsed,
+            plan_name=plan_name,
+            plan=plans_by_name.get(plan_name),
+        ))
+
+    if not to_create:
+        messages.error(request, 'Nessuna riga valida da importare.')
+        for err in errors[:5]:
+            messages.warning(request, err)
+        return render(request, 'gym/session_import.html')
+
+    # Conta quante sessioni esistevano già, per dare un resoconto onesto:
+    # ignore_conflicts non dice quali righe sono state effettivamente inserite.
+    existing = set(
+        WorkoutSession.objects
+        .filter(user=request.user, date__in=[s.date for s in to_create])
+        .values_list('date', 'plan_name')
+    )
+    new_count = sum(1 for s in to_create if (s.date, s.plan_name) not in existing)
+
+    WorkoutSession.objects.bulk_create(to_create, ignore_conflicts=True)
+
+    duplicates = len(to_create) - new_count
+    msg = f'{new_count} allenamenti importati.'
+    if duplicates:
+        msg += f' {duplicates} già presenti sono stati ignorati.'
+    messages.success(request, msg)
+
+    if skipped_future:
+        messages.info(request, f'{skipped_future} righe con data futura ignorate.')
+    for err in errors[:5]:
+        messages.warning(request, err)
+    if len(errors) > 5:
+        messages.warning(request, f'... e altri {len(errors) - 5} errori.')
+
+    return redirect('workout_calendar')

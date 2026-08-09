@@ -611,3 +611,95 @@ canvas {
     display: flex;
     gap: 8px;
 }
+
+/* Calendario allenamenti */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+}
+
+.calendar-weekday {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #888;
+    padding-bottom: 4px;
+}
+
+.calendar-cell {
+    position: relative;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 10px;
+    color: #ddd;
+    font-size: 14px;
+    padding: 0;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.calendar-cell:not(.calendar-cell-empty):hover {
+    border-color: var(--gymit-yellow);
+}
+
+.calendar-cell-empty {
+    background: transparent;
+    border-color: transparent;
+    pointer-events: none;
+}
+
+.calendar-day-number {
+    position: relative;
+    z-index: 1;
+}
+
+/* Giorni allenati: il logo GymIt riempie la cella, il numero resta leggibile */
+.calendar-cell.has-session {
+    border-color: var(--gymit-yellow);
+    background: rgba(255, 193, 7, 0.10);
+}
+
+.calendar-cell.has-session .calendar-day-number {
+    position: absolute;
+    top: 2px;
+    left: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--gymit-yellow);
+}
+
+.calendar-day-icon {
+    width: 60%;
+    height: 60%;
+    object-fit: contain;
+}
+
+.calendar-session-count {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #000;
+    background: var(--gymit-yellow);
+    border-radius: 999px;
+    min-width: 14px;
+    height: 14px;
+    line-height: 14px;
+    text-align: center;
+    padding: 0 3px;
+}
+
+.calendar-cell.is-today {
+    border-color: #fff;
+    border-width: 2px;
+}
+
+.calendar-cell.is-future {
+    opacity: 0.35;
+}
