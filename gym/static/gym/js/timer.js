@@ -278,6 +278,7 @@
     // ── Pannello aperto/chiuso ───────────────────────────────────────
     function openPanel() {
         panel.hidden = false;
+        positionPanel();
         unlockAudio();
     }
     function closePanel() {
@@ -377,16 +378,32 @@
         };
     }
 
-    // Il pannello si apre verso il centro dello schermo, così non finisce
-    // fuori dai bordi quando il FAB viene spostato a sinistra o in alto.
-    function updateAnchors() {
-        var rect = widget.getBoundingClientRect();
-        widget.classList.toggle(
-            'anchor-left', rect.left + rect.width / 2 < window.innerWidth / 2
-        );
-        widget.classList.toggle(
-            'anchor-top', rect.top + rect.height / 2 < window.innerHeight / 2
-        );
+    // Colloca il pannello accanto al FAB tenendolo per intero dentro lo
+    // schermo. Ancorarlo e basta non basta: col FAB verso il centro il
+    // pannello sborderebbe comunque, perché è più largo dello spazio che
+    // resta da un lato. Qui si sceglie il lato preferito e poi si vincola
+    // ai bordi, così il pannello è sempre visibile tutto.
+    function positionPanel() {
+        if (panel.hidden) return;
+
+        var fabRect = fab.getBoundingClientRect();
+        var panelRect = panel.getBoundingClientRect();
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        var GAP = 12;
+
+        // Sopra il FAB se c'è spazio, altrimenti sotto.
+        var top = fabRect.top - panelRect.height - GAP;
+        if (top < EDGE_MARGIN) top = fabRect.bottom + GAP;
+
+        // Allineato al bordo destro del FAB, poi rientrato se necessario.
+        var left = fabRect.right - panelRect.width;
+
+        var maxLeft = Math.max(EDGE_MARGIN, vw - panelRect.width - EDGE_MARGIN);
+        var maxTop = Math.max(EDGE_MARGIN, vh - panelRect.height - EDGE_MARGIN);
+
+        panel.style.left = Math.min(Math.max(left, EDGE_MARGIN), maxLeft) + 'px';
+        panel.style.top = Math.min(Math.max(top, EDGE_MARGIN), maxTop) + 'px';
     }
 
     function applyPosition(pos) {
@@ -394,11 +411,15 @@
         widget.style.top = pos.top + 'px';
         widget.style.right = 'auto';
         widget.style.bottom = 'auto';
-        updateAnchors();
+        positionPanel();
     }
 
     fab.addEventListener('pointerdown', function (e) {
         if (e.button) return; // solo tasto principale / tocco
+        // Azzerato a ogni pressione: dopo un trascinamento il click di
+        // compatibilità non sempre arriva sul FAB, e un flag rimasto alzato
+        // si mangerebbe in silenzio il tocco successivo dell'utente.
+        suppressClick = false;
         var rect = widget.getBoundingClientRect();
         dragState = {
             pointerId: e.pointerId,
@@ -448,9 +469,13 @@
     // Ruotando il telefono o ridimensionando la finestra il FAB potrebbe
     // restare fuori dallo schermo: lo si riporta dentro.
     window.addEventListener('resize', function () {
-        if (!loadPosition()) return;
-        var rect = widget.getBoundingClientRect();
-        applyPosition(clampPosition(rect.left, rect.top));
+        if (loadPosition()) {
+            var rect = widget.getBoundingClientRect();
+            applyPosition(clampPosition(rect.left, rect.top));
+        }
+        // Anche col FAB nella posizione originale il pannello va ricollocato:
+        // la viewport è cambiata sotto di lui.
+        positionPanel();
     });
 
     var savedPosition = loadPosition();

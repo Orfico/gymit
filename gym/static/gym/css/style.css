@@ -456,17 +456,6 @@ canvas {
     box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
 }
 
-/* Il pannello si apre verso il centro dello schermo: spostando il FAB a
-   sinistra o in alto resterebbe altrimenti tagliato fuori dai bordi. */
-.rest-timer-widget.anchor-left .rest-timer-panel {
-    right: auto;
-    left: 0;
-}
-
-.rest-timer-widget.anchor-top .rest-timer-panel {
-    bottom: auto;
-    top: 68px;
-}
 
 .rest-timer-fab-ring {
     position: absolute;
@@ -527,9 +516,10 @@ canvas {
 }
 
 .rest-timer-panel {
-    position: absolute;
-    right: 0;
-    bottom: 68px;
+    /* Fisso e collocato da timer.js: il pannello va vincolato ai bordi
+       dello schermo, non ancorato al FAB, altrimenti spostando il timer
+       verso il centro finirebbe in parte fuori dalla viewport. */
+    position: fixed;
     width: 300px;
     max-width: calc(100vw - 32px);
     background: #1a1a1a;
