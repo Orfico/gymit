@@ -446,6 +446,26 @@ canvas {
     justify-content: center;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
     cursor: pointer;
+    /* Il trascinamento del FAB non deve far scorrere la pagina sotto. */
+    touch-action: none;
+}
+
+/* Trascinamento del widget timer */
+.rest-timer-widget.is-dragging .rest-timer-fab {
+    cursor: grabbing;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+}
+
+/* Il pannello si apre verso il centro dello schermo: spostando il FAB a
+   sinistra o in alto resterebbe altrimenti tagliato fuori dai bordi. */
+.rest-timer-widget.anchor-left .rest-timer-panel {
+    right: auto;
+    left: 0;
+}
+
+.rest-timer-widget.anchor-top .rest-timer-panel {
+    bottom: auto;
+    top: 68px;
 }
 
 .rest-timer-fab-ring {

@@ -103,7 +103,8 @@
 {% if user.is_authenticated %}
 <!-- Timer di recupero — widget globale floating, disponibile su ogni pagina -->
 <div id="restTimerWidget" class="rest-timer-widget">
-    <button type="button" id="restTimerFab" class="rest-timer-fab" aria-label="Timer di recupero">
+    <button type="button" id="restTimerFab" class="rest-timer-fab"
+            aria-label="Timer di recupero" title="Tocca per aprire, trascina per spostare">
         <span class="rest-timer-fab-ring"></span>
         <span class="rest-timer-fab-content">
             <i class="bi bi-stopwatch"></i>

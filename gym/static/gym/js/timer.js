@@ -26,6 +26,9 @@
 (function () {
     var STORAGE_KEY = 'gymit_rest_timer_state';
     var LAST_DURATION_KEY = 'gymit_rest_timer_last_duration';
+    var POSITION_KEY = 'gymit_rest_timer_position';
+    var DRAG_THRESHOLD = 6;   // px sotto i quali il gesto resta un tap
+    var EDGE_MARGIN = 8;      // px minimi dai bordi, per non perdere il FAB
     var DEFAULT_DURATION = 90;
     var MIN_DURATION = 5;
     var MAX_DURATION = 900;
@@ -282,6 +285,10 @@
     }
 
     fab.addEventListener('click', function () {
+        if (suppressClick) {
+            suppressClick = false;
+            return;
+        }
         unlockAudio();
         if (state.status === 'finished') {
             dismissFinished();
@@ -327,6 +334,127 @@
     });
 
     resetBtn.addEventListener('click', reset);
+
+    // ── Trascinamento del widget ──────────────────────────────────
+    // Il FAB è fisso sopra il contenuto e in certe pagine copre proprio ciò
+    // che si sta leggendo. Si può spostare trascinandolo, e la posizione
+    // resta memorizzata tra le pagine.
+    //
+    // Pointer Events invece della coppia mouse+touch usata altrove: qui
+    // basta un solo elemento trascinabile, e un unico percorso di codice
+    // vale per dito, mouse e penna senza gestire eventi che si sdoppiano.
+
+    var dragState = null;
+    var suppressClick = false;
+
+    function loadPosition() {
+        try {
+            var raw = localStorage.getItem(POSITION_KEY);
+            if (!raw) return null;
+            var pos = JSON.parse(raw);
+            if (typeof pos.left !== 'number' || typeof pos.top !== 'number') return null;
+            return pos;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function savePosition(pos) {
+        try {
+            localStorage.setItem(POSITION_KEY, JSON.stringify(pos));
+        } catch (e) { /* storage pieno o disabilitato: non è critico */ }
+    }
+
+    // Il pannello è assoluto e fuori flusso, quindi il rettangolo del widget
+    // corrisponde al solo FAB: è quello che va tenuto dentro lo schermo.
+    function clampPosition(left, top) {
+        var rect = widget.getBoundingClientRect();
+        var maxLeft = Math.max(EDGE_MARGIN, window.innerWidth - rect.width - EDGE_MARGIN);
+        var maxTop = Math.max(EDGE_MARGIN, window.innerHeight - rect.height - EDGE_MARGIN);
+        return {
+            left: Math.min(Math.max(left, EDGE_MARGIN), maxLeft),
+            top: Math.min(Math.max(top, EDGE_MARGIN), maxTop),
+        };
+    }
+
+    // Il pannello si apre verso il centro dello schermo, così non finisce
+    // fuori dai bordi quando il FAB viene spostato a sinistra o in alto.
+    function updateAnchors() {
+        var rect = widget.getBoundingClientRect();
+        widget.classList.toggle(
+            'anchor-left', rect.left + rect.width / 2 < window.innerWidth / 2
+        );
+        widget.classList.toggle(
+            'anchor-top', rect.top + rect.height / 2 < window.innerHeight / 2
+        );
+    }
+
+    function applyPosition(pos) {
+        widget.style.left = pos.left + 'px';
+        widget.style.top = pos.top + 'px';
+        widget.style.right = 'auto';
+        widget.style.bottom = 'auto';
+        updateAnchors();
+    }
+
+    fab.addEventListener('pointerdown', function (e) {
+        if (e.button) return; // solo tasto principale / tocco
+        var rect = widget.getBoundingClientRect();
+        dragState = {
+            pointerId: e.pointerId,
+            offsetX: e.clientX - rect.left,
+            offsetY: e.clientY - rect.top,
+            startX: e.clientX,
+            startY: e.clientY,
+            moved: false,
+        };
+        fab.setPointerCapture(e.pointerId);
+    });
+
+    fab.addEventListener('pointermove', function (e) {
+        if (!dragState || e.pointerId !== dragState.pointerId) return;
+        var dx = e.clientX - dragState.startX;
+        var dy = e.clientY - dragState.startY;
+        // Finché il movimento è minimo il gesto resta un tap: così aprire il
+        // pannello non richiede di tenere il dito perfettamente fermo.
+        if (!dragState.moved && Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+
+        dragState.moved = true;
+        widget.classList.add('is-dragging');
+        applyPosition(clampPosition(
+            e.clientX - dragState.offsetX,
+            e.clientY - dragState.offsetY
+        ));
+    });
+
+    function endDrag(e) {
+        if (!dragState || e.pointerId !== dragState.pointerId) return;
+        if (fab.hasPointerCapture(e.pointerId)) fab.releasePointerCapture(e.pointerId);
+        widget.classList.remove('is-dragging');
+
+        if (dragState.moved) {
+            var rect = widget.getBoundingClientRect();
+            savePosition({ left: rect.left, top: rect.top });
+            // Dopo un trascinamento il browser emette comunque un click:
+            // va ignorato, altrimenti il pannello si aprirebbe da solo.
+            suppressClick = true;
+        }
+        dragState = null;
+    }
+
+    fab.addEventListener('pointerup', endDrag);
+    fab.addEventListener('pointercancel', endDrag);
+
+    // Ruotando il telefono o ridimensionando la finestra il FAB potrebbe
+    // restare fuori dallo schermo: lo si riporta dentro.
+    window.addEventListener('resize', function () {
+        if (!loadPosition()) return;
+        var rect = widget.getBoundingClientRect();
+        applyPosition(clampPosition(rect.left, rect.top));
+    });
+
+    var savedPosition = loadPosition();
+    if (savedPosition) applyPosition(clampPosition(savedPosition.left, savedPosition.top));
 
     // ── Init ──────────────────────────────────────────────────────
     state = loadState();
