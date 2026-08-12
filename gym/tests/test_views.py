@@ -1643,3 +1643,147 @@ class CalendarQuickLogTest(TestCase):
         marked = [c for week in r.context['weeks'] for c in week if c and c['sessions']]
         self.assertEqual(len(marked), 1)
         self.assertEqual(marked[0]['day'], 10)
+
+
+class FreeWorkoutCalendarTest(TestCase):
+    """Registrazione di un allenamento libero dal calendario."""
+
+    def setUp(self):
+        self.user = make_user('freecal')
+        self.client.login(username='freecal', password='testpass')
+        self.plan = make_plan(self.user, 'Push Pull Legs')
+
+    # ── Creazione ────────────────────────────────────────────────────
+    def test_creates_free_session(self):
+        past = timezone.localdate() - timedelta(days=2)
+        self.client.post(reverse('session_create'), {
+            'free_name': 'Cardio', 'date': past.isoformat(), 'next': 'calendar',
+        })
+        session = WorkoutSession.objects.get(user=self.user)
+        self.assertTrue(session.is_free)
+        self.assertIsNone(session.plan)
+        self.assertEqual(session.plan_name, 'Cardio')
+        self.assertEqual(session.date, past)
+
+    def test_free_name_is_trimmed(self):
+        self.client.post(reverse('session_create'), {
+            'free_name': '   Nuoto   ', 'next': 'calendar',
+        })
+        self.assertEqual(WorkoutSession.objects.get().plan_name, 'Nuoto')
+
+    def test_free_session_redirects_to_calendar(self):
+        past = date(2026, 3, 10)
+        r = self.client.post(reverse('session_create'), {
+            'free_name': 'Cardio', 'date': past.isoformat(),
+        })
+        self.assertRedirects(
+            r, f"{reverse('workout_calendar')}?year=2026&month=3",
+            fetch_redirect_response=False,
+        )
+
+    def test_free_name_takes_precedence_over_plan_id(self):
+        """Se arriva del testo libero è quello a comandare."""
+        self.client.post(reverse('session_create'), {
+            'free_name': 'Cardio', 'plan_id': self.plan.pk, 'next': 'calendar',
+        })
+        session = WorkoutSession.objects.get()
+        self.assertTrue(session.is_free)
+        self.assertEqual(session.plan_name, 'Cardio')
+
+    def test_too_long_free_name_rejected(self):
+        self.client.post(reverse('session_create'), {
+            'free_name': 'x' * 101, 'next': 'calendar',
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_max_length_free_name_accepted(self):
+        self.client.post(reverse('session_create'), {
+            'free_name': 'x' * 100, 'next': 'calendar',
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 1)
+
+    def test_future_date_rejected_for_free_session(self):
+        future = timezone.localdate() + timedelta(days=2)
+        self.client.post(reverse('session_create'), {
+            'free_name': 'Cardio', 'date': future.isoformat(), 'next': 'calendar',
+        })
+        self.assertEqual(WorkoutSession.objects.count(), 0)
+
+    def test_duplicate_free_session_is_idempotent(self):
+        payload = {'free_name': 'Cardio', 'next': 'calendar'}
+        self.client.post(reverse('session_create'), payload)
+        self.client.post(reverse('session_create'), payload)
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 1)
+
+    def test_blank_free_name_falls_back_to_plan(self):
+        """Uno spazio vuoto non deve creare un allenamento senza nome."""
+        self.client.post(reverse('session_create'), {
+            'free_name': '   ', 'plan_id': self.plan.pk,
+        })
+        session = WorkoutSession.objects.get()
+        self.assertFalse(session.is_free)
+        self.assertEqual(session.plan, self.plan)
+
+    # ── Colore nella griglia ─────────────────────────────────────────
+    def _cells(self, year, month):
+        r = self.client.get(reverse('workout_calendar'), {'year': year, 'month': month})
+        return [c for week in r.context['weeks'] for c in week if c and c['sessions']]
+
+    def test_free_only_day_marked_as_free(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan_name='Cardio', is_free=True
+        )
+        cells = self._cells(2026, 3)
+        self.assertEqual(len(cells), 1)
+        self.assertTrue(cells[0]['only_free'])
+
+    def test_plan_day_not_marked_as_free(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan=self.plan
+        )
+        self.assertFalse(self._cells(2026, 3)[0]['only_free'])
+
+    def test_mixed_day_keeps_plan_colour(self):
+        """Con una scheda in giornata prevale il colore principale."""
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan=self.plan
+        )
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan_name='Cardio', is_free=True
+        )
+        self.assertFalse(self._cells(2026, 3)[0]['only_free'])
+
+    def test_imported_session_keeps_plan_colour(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan_name='Scheda Sparita'
+        )
+        self.assertFalse(self._cells(2026, 3)[0]['only_free'])
+
+    # ── Dettaglio giornata ───────────────────────────────────────────
+    def test_day_detail_exposes_is_free(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan_name='Cardio', is_free=True
+        )
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 3, 10), plan=self.plan
+        )
+        r = self.client.get(reverse('session_day_detail', args=[2026, 3, 10]))
+        by_name = {s['plan_name']: s for s in r.json()['sessions']}
+        self.assertTrue(by_name['Cardio']['is_free'])
+        self.assertIsNone(by_name['Cardio']['plan_url'])
+        self.assertFalse(by_name['Push Pull Legs']['is_free'])
+
+    def test_free_session_can_be_deleted(self):
+        session = WorkoutSession.objects.create(
+            user=self.user, date=timezone.localdate(), plan_name='Cardio', is_free=True
+        )
+        self.client.post(reverse('session_delete', kwargs={'pk': session.pk}))
+        self.assertFalse(WorkoutSession.objects.filter(pk=session.pk).exists())
+
+    def test_free_session_belongs_to_requesting_user(self):
+        other = make_user('altrofree')
+        self.client.post(reverse('session_create'), {
+            'free_name': 'Cardio', 'next': 'calendar',
+        })
+        self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(WorkoutSession.objects.filter(user=other).count(), 0)

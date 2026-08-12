@@ -210,6 +210,11 @@ class WorkoutSession(models.Model):
     `plan` è opzionale e con SET_NULL, mentre `plan_name` è denormalizzato
     e sempre valorizzato: lo storico deve sopravvivere alla cancellazione
     di una scheda, e l'import CSV può contenere schede mai esistite in app.
+
+    `is_free` marca gli allenamenti descritti a mano (es. "Cardio"), che non
+    corrispondono a nessuna scheda. Serve un flag esplicito perché `plan`
+    nullo da solo non basta a distinguerli: ce l'hanno anche le sessioni
+    importate da CSV con schede sconosciute o poi eliminate.
     """
     user = models.ForeignKey(
         User,
@@ -225,6 +230,7 @@ class WorkoutSession(models.Model):
         verbose_name='Scheda'
     )
     plan_name = models.CharField(max_length=100, verbose_name='Nome scheda')
+    is_free = models.BooleanField(default=False, verbose_name='Allenamento libero')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

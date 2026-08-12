@@ -78,11 +78,11 @@
             {% for cell in week %}
                 {% if cell %}
                 <button type="button"
-                        class="calendar-cell{% if cell.sessions %} has-session{% endif %}{% if cell.is_today %} is-today{% endif %}{% if cell.is_future %} is-future{% endif %}"
+                        class="calendar-cell{% if cell.sessions %} has-session{% endif %}{% if cell.only_free %} is-free{% endif %}{% if cell.is_today %} is-today{% endif %}{% if cell.is_future %} is-future{% endif %}"
                         data-day="{{ cell.day }}"
                         data-url="{% url 'session_day_detail' year month cell.day %}"
                         {% if not cell.sessions %}data-empty="1"{% endif %}
-                        aria-label="{{ cell.day }} {{ month_name }}{% if cell.sessions %} — allenamento registrato{% endif %}">
+                        aria-label="{{ cell.day }} {{ month_name }}{% if cell.sessions %} — {% if cell.only_free %}allenamento libero registrato{% else %}allenamento registrato{% endif %}{% endif %}">
                     <span class="calendar-day-number">{{ cell.day }}</span>
                     {% if cell.sessions %}
                     <img src="{% static 'gym/icons/icon-192.png' %}"
@@ -101,6 +101,15 @@
 
     <div class="text-center text-secondary small mb-3">
         <i class="bi bi-info-circle me-1"></i>Tocca un giorno per vedere i dettagli
+    </div>
+
+    <div class="d-flex justify-content-center gap-3 mb-3">
+        <span class="calendar-legend">
+            <span class="calendar-legend-dot"></span>Da scheda
+        </span>
+        <span class="calendar-legend">
+            <span class="calendar-legend-dot is-free"></span>Libero
+        </span>
     </div>
 
     {% if total_days_trained == 0 %}
@@ -141,7 +150,7 @@
                     <div class="position-relative mb-2">
                         <input type="text" id="dayLogSearch" class="form-control"
                                style="padding-right:38px;" autocomplete="off"
-                               placeholder="Cerca scheda..." aria-label="Cerca scheda">
+                               placeholder="Cerca scheda o scrivi un allenamento..." aria-label="Cerca scheda o scrivi un allenamento">
                         <i class="bi bi-search position-absolute text-secondary"
                            style="right:14px; top:50%; transform:translateY(-50%); pointer-events:none;"></i>
                     </div>
@@ -151,6 +160,7 @@
                 <form method="post" action="{% url 'session_create' %}" id="dayLogForm" class="d-none">
                     {% csrf_token %}
                     <input type="hidden" name="plan_id" id="dayLogPlanId">
+                    <input type="hidden" name="free_name" id="dayLogFreeName">
                     <input type="hidden" name="date" id="dayLogDate">
                     <input type="hidden" name="next" value="calendar">
                 </form>

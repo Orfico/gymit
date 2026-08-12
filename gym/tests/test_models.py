@@ -230,3 +230,54 @@ class WorkoutSessionTest(TestCase):
         WorkoutSession.objects.create(user=self.user, date=date(2026, 1, 15), plan_name='A')
         WorkoutSession.objects.create(user=other, date=date(2026, 1, 15), plan_name='A')
         self.assertEqual(WorkoutSession.objects.count(), 2)
+
+
+class FreeWorkoutSessionTest(TestCase):
+    """Allenamenti descritti a mano, non legati a nessuna scheda."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('freeuser', password='testpass')
+
+    def test_is_free_defaults_false(self):
+        plan = WorkoutPlan.objects.create(user=self.user, name='Push Pull Legs')
+        session = WorkoutSession.objects.create(
+            user=self.user, date=date.today(), plan=plan
+        )
+        self.assertFalse(session.is_free)
+
+    def test_free_session_has_no_plan(self):
+        session = WorkoutSession.objects.create(
+            user=self.user, date=date.today(), plan_name='Cardio', is_free=True
+        )
+        self.assertIsNone(session.plan)
+        self.assertTrue(session.is_free)
+        self.assertEqual(session.plan_name, 'Cardio')
+
+    def test_imported_session_without_plan_is_not_free(self):
+        """
+        Distinzione che il solo `plan` nullo non potrebbe esprimere: una
+        sessione importata da CSV con scheda sconosciuta non è un
+        allenamento libero.
+        """
+        session = WorkoutSession.objects.create(
+            user=self.user, date=date.today(), plan_name='Scheda Sparita'
+        )
+        self.assertIsNone(session.plan)
+        self.assertFalse(session.is_free)
+
+    def test_same_free_name_twice_same_day_rejected(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 5, 4), plan_name='Cardio', is_free=True
+        )
+        with self.assertRaises(IntegrityError):
+            WorkoutSession.objects.create(
+                user=self.user, date=date(2026, 5, 4), plan_name='Cardio', is_free=True
+            )
+
+    def test_free_and_plan_session_coexist_same_day(self):
+        plan = WorkoutPlan.objects.create(user=self.user, name='Push Pull Legs')
+        WorkoutSession.objects.create(user=self.user, date=date(2026, 5, 4), plan=plan)
+        WorkoutSession.objects.create(
+            user=self.user, date=date(2026, 5, 4), plan_name='Cardio', is_free=True
+        )
+        self.assertEqual(WorkoutSession.objects.filter(date=date(2026, 5, 4)).count(), 2)

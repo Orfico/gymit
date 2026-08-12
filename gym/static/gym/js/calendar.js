@@ -27,6 +27,7 @@ function initWorkoutCalendar({ modalId, titleId, bodyId, csrfToken, plans }) {
     var resultsEl = document.getElementById('dayLogResults');
     var formEl = document.getElementById('dayLogForm');
     var planIdEl = document.getElementById('dayLogPlanId');
+    var freeNameEl = document.getElementById('dayLogFreeName');
     var dateEl = document.getElementById('dayLogDate');
 
     var currentDate = null;
@@ -64,10 +65,17 @@ function initWorkoutCalendar({ modalId, titleId, bodyId, csrfToken, plans }) {
             var label = s.plan_url
                 ? '<a href="' + s.plan_url + '" class="text-warning text-decoration-none fw-semibold">' +
                   name + '</a>'
-                : '<span class="fw-semibold">' + name + '</span>';
+                : '<span class="fw-semibold"' +
+                  (s.is_free ? ' style="color: var(--gymit-cyan);"' : '') + '>' + name + '</span>';
+
+            // Gli allenamenti liberi si distinguono anche qui, non solo nella
+            // griglia: icona e colore diversi da quelli delle schede.
+            var icon = s.is_free
+                ? '<i class="bi bi-activity" style="color: var(--gymit-cyan);"></i>'
+                : '<i class="bi bi-lightning-charge-fill text-warning"></i>';
 
             html += '<li class="d-flex align-items-center gap-2 py-2 border-bottom border-secondary">' +
-                    '<i class="bi bi-lightning-charge-fill text-warning"></i>' +
+                    icon +
                     '<span class="flex-grow-1 min-w-0 text-truncate">' + label + '</span>' +
                     '<form method="post" action="' + s.delete_url + '" class="m-0 session-delete-form">' +
                     '<input type="hidden" name="csrfmiddlewaretoken" value="' + csrfToken + '">' +
@@ -81,35 +89,54 @@ function initWorkoutCalendar({ modalId, titleId, bodyId, csrfToken, plans }) {
 
     // ── Selettore schede ─────────────────────────────────────────────
     function renderResults(query) {
-        var q = query.trim().toLowerCase();
-        currentMatches = allPlans.filter(function (p) {
+        var raw = query.trim();
+        var q = raw.toLowerCase();
+        var plans = allPlans.filter(function (p) {
             return !q || p.name.toLowerCase().indexOf(q) !== -1;
         });
+
+        // Ciò che si può scegliere: le schede filtrate, più — se è stato
+        // digitato qualcosa che non è già il nome di una scheda — la voce
+        // per registrare un allenamento non previsto da nessuna scheda.
+        currentMatches = plans.map(function (p) {
+            return { kind: 'plan', plan: p, name: p.name };
+        });
+
+        var exact = plans.some(function (p) { return p.name.toLowerCase() === q; });
+        if (raw && !exact) {
+            currentMatches.push({ kind: 'free', name: raw });
+        }
         highlightedIndex = -1;
 
-        if (!allPlans.length) {
-            resultsEl.innerHTML =
-                '<li class="text-secondary small text-center py-3">' +
-                'Non hai ancora nessuna scheda.</li>';
-            return;
-        }
         if (!currentMatches.length) {
-            resultsEl.innerHTML =
-                '<li class="text-secondary small text-center py-3">' +
-                'Nessuna scheda trovata.</li>';
+            resultsEl.innerHTML = allPlans.length
+                ? '<li class="text-secondary small text-center py-3">' +
+                  'Scrivi il nome di un allenamento per registrarlo.</li>'
+                : '<li class="text-secondary small text-center py-3">' +
+                  'Non hai schede: scrivi cosa hai fatto per registrarlo.</li>';
             return;
         }
 
-        resultsEl.innerHTML = currentMatches.map(function (p, i) {
+        resultsEl.innerHTML = currentMatches.map(function (m, i) {
+            if (m.kind === 'free') {
+                return '<li><button type="button" class="day-log-option is-free" ' +
+                       'data-index="' + i + '">' +
+                       '<i class="bi bi-activity me-2"></i>' +
+                       '<span class="flex-grow-1 min-w-0 text-truncate">' +
+                       escapeHtml(m.name) + '</span>' +
+                       '<span class="badge bg-secondary fw-normal ms-2" ' +
+                       'style="font-size:10px;">Libero</span>' +
+                       '</button></li>';
+            }
             // Le archiviate restano selezionabili ma dichiarate come tali.
-            var badge = p.is_active
+            var badge = m.plan.is_active
                 ? ''
                 : '<span class="badge bg-secondary fw-normal ms-2" style="font-size:10px;">' +
                   'Archiviata</span>';
             return '<li><button type="button" class="day-log-option" data-index="' + i + '">' +
                    '<i class="bi bi-journal-text text-warning me-2"></i>' +
                    '<span class="flex-grow-1 min-w-0 text-truncate">' +
-                   highlightMatch(p.name, q) + '</span>' + badge +
+                   highlightMatch(m.plan.name, q) + '</span>' + badge +
                    '</button></li>';
         }).join('');
     }
@@ -124,9 +151,12 @@ function initWorkoutCalendar({ modalId, titleId, bodyId, csrfToken, plans }) {
         highlightedIndex = index;
     }
 
-    function submitPlan(plan) {
-        if (!plan || !currentDate) return;
-        planIdEl.value = plan.id;
+    function submitChoice(choice) {
+        if (!choice || !currentDate) return;
+        // Uno dei due campi resta vuoto: è quello che dice al server se
+        // registrare una scheda o un allenamento descritto a mano.
+        planIdEl.value = choice.kind === 'plan' ? choice.plan.id : '';
+        freeNameEl.value = choice.kind === 'free' ? choice.name : '';
         dateEl.value = currentDate;
         showPageLoader('Registrazione...');
         formEl.submit();
@@ -169,7 +199,7 @@ function initWorkoutCalendar({ modalId, titleId, bodyId, csrfToken, plans }) {
                 // Senza selezione esplicita vale il primo risultato: con una
                 // sola scheda filtrata è quasi sempre quella che si voleva.
                 var index = highlightedIndex >= 0 ? highlightedIndex : 0;
-                submitPlan(currentMatches[index]);
+                submitChoice(currentMatches[index]);
             } else if (e.key === 'Escape') {
                 e.preventDefault();
                 pickerEl.hidden = true;
@@ -180,7 +210,7 @@ function initWorkoutCalendar({ modalId, titleId, bodyId, csrfToken, plans }) {
         resultsEl.addEventListener('click', function (e) {
             var option = e.target.closest('.day-log-option');
             if (!option) return;
-            submitPlan(currentMatches[parseInt(option.dataset.index, 10)]);
+            submitChoice(currentMatches[parseInt(option.dataset.index, 10)]);
         });
     }
 

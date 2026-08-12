@@ -896,9 +896,31 @@ def session_create(request):
     if request.method != 'POST':
         return redirect('plan_list')
 
-    plan = get_object_or_404(
-        WorkoutPlan, pk=request.POST.get('plan_id'), user=request.user
-    )
+    # Un allenamento può nascere da una scheda oppure essere descritto a mano
+    # (es. "Cardio"): in quel caso non c'è una scheda a cui tornare, quindi
+    # il calendario è sempre la destinazione.
+    free_name = request.POST.get('free_name', '').strip()
+    plan = None
+    if not free_name:
+        plan = get_object_or_404(
+            WorkoutPlan, pk=request.POST.get('plan_id'), user=request.user
+        )
+
+    back_to_calendar = request.POST.get('next') == 'calendar' or plan is None
+
+    def _back(session_date=None):
+        # Whitelist invece di un redirect libero: `next` arriva dal client.
+        if back_to_calendar:
+            target = session_date or timezone.localdate()
+            return redirect(
+                f"{reverse('workout_calendar')}"
+                f"?year={target.year}&month={target.month}"
+            )
+        return redirect('plan_detail', pk=plan.pk)
+
+    if free_name and len(free_name) > 100:
+        messages.error(request, 'La descrizione può essere lunga al massimo 100 caratteri.')
+        return _back()
 
     session_date = timezone.localdate()
     raw_date = request.POST.get('date', '').strip()
@@ -906,32 +928,26 @@ def session_create(request):
         parsed = _parse_session_date(raw_date)
         if parsed is None:
             messages.error(request, 'Data non valida.')
-            return redirect('plan_detail', pk=plan.pk)
+            return _back()
         if parsed > timezone.localdate():
             messages.error(request, 'Non puoi registrare un allenamento nel futuro.')
-            return redirect('plan_detail', pk=plan.pk)
+            return _back()
         session_date = parsed
 
+    label = free_name or plan.name
     _, created = WorkoutSession.objects.get_or_create(
         user=request.user,
         date=session_date,
-        plan_name=plan.name,
-        defaults={'plan': plan},
+        plan_name=label,
+        defaults={'plan': plan, 'is_free': plan is None},
     )
 
     if created:
-        messages.success(request, f'Allenamento registrato: {plan.name}.')
+        messages.success(request, f'Allenamento registrato: {label}.')
     else:
         messages.info(request, 'Questo allenamento era già registrato in questa data.')
 
-    # Chi registra dal calendario deve tornarci, sul mese della sessione.
-    # Whitelist invece di un redirect libero: `next` arriva dal client.
-    if request.POST.get('next') == 'calendar':
-        return redirect(
-            f"{reverse('workout_calendar')}"
-            f"?year={session_date.year}&month={session_date.month}"
-        )
-    return redirect('plan_detail', pk=plan.pk)
+    return _back(session_date)
 
 
 @login_required
@@ -991,10 +1007,15 @@ def workout_calendar(request):
                 row.append(None)  # cella vuota (mese precedente/successivo)
                 continue
             cell_date = date(year, month, day)
+            day_sessions = sessions_by_day.get(day, [])
             row.append({
                 'day': day,
                 'date': cell_date,
-                'sessions': sessions_by_day.get(day, []),
+                'sessions': day_sessions,
+                # Colore distinto solo se la giornata è fatta di soli
+                # allenamenti liberi: se c'è anche una scheda prevale lei,
+                # che è l'informazione più specifica.
+                'only_free': bool(day_sessions) and all(s.is_free for s in day_sessions),
                 'is_today': cell_date == today,
                 'is_future': cell_date > today,
             })
@@ -1082,6 +1103,7 @@ def session_day_detail(request, year, month, day):
                 'id': s.id,
                 'plan_name': s.plan_name,
                 'plan_id': s.plan_id,
+                'is_free': s.is_free,
                 'delete_url': reverse('session_delete', args=[s.id]),
                 'plan_url': reverse('plan_detail', args=[s.plan_id]) if s.plan_id else None,
             }

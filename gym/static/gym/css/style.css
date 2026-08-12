@@ -9,6 +9,10 @@
     --bs-secondary-color: #fafbfb;
     --bs-secondary: #fafbfb;
     --gymit-yellow: #ffc107;
+    /* Allenamenti liberi: il ciano è quello che si stacca di più dal giallo
+       dell'app senza portarsi dietro il significato del rosso (errore,
+       eliminazione) né quello del verde (riuscito/completato). */
+    --gymit-cyan: #0dcaf0;
     --gymit-dark: #0d0d0d;
     --gymit-card: #111111;
 }
@@ -705,6 +709,40 @@ canvas {
     padding: 0 3px;
 }
 
+/* Allenamento libero: stesso logo, colore diverso */
+.calendar-cell.has-session.is-free {
+    border-color: var(--gymit-cyan);
+    background: rgba(13, 202, 240, 0.10);
+}
+
+.calendar-cell.has-session.is-free .calendar-day-number {
+    color: var(--gymit-cyan);
+}
+
+.calendar-cell.has-session.is-free .calendar-session-count {
+    background: var(--gymit-cyan);
+}
+
+/* Legenda dei colori sotto la griglia */
+.calendar-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #aaa;
+}
+
+.calendar-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--gymit-yellow);
+}
+
+.calendar-legend-dot.is-free {
+    background: var(--gymit-cyan);
+}
+
 .calendar-cell.is-today {
     border-color: #fff;
     border-width: 2px;
@@ -754,4 +792,19 @@ canvas {
 
 .day-log-option mark {
     border-radius: 3px;
+}
+
+/* Voce per registrare un allenamento non previsto da nessuna scheda */
+.day-log-option.is-free {
+    border-color: rgba(13, 202, 240, 0.5);
+}
+
+.day-log-option.is-free:hover,
+.day-log-option.is-free.active {
+    border-color: var(--gymit-cyan);
+    background: rgba(13, 202, 240, 0.10);
+}
+
+.day-log-option.is-free .bi {
+    color: var(--gymit-cyan) !important;
 }
