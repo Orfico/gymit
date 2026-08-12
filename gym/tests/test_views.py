@@ -1150,7 +1150,8 @@ class WorkoutCalendarTest(TestCase):
 
     def test_weekly_average_over_multiple_weeks(self):
         week_start = self._week_start()
-        # Un allenamento questa settimana e uno la scorsa: 2 giorni / 2 settimane.
+        # Un allenamento questa settimana e uno la scorsa: conta solo quello
+        # della scorsa, sull'unica settimana conclusa.
         WorkoutSession.objects.create(user=self.user, date=week_start, plan_name='A')
         WorkoutSession.objects.create(
             user=self.user, date=week_start - timedelta(days=7), plan_name='A'
@@ -1174,9 +1175,49 @@ class WorkoutCalendarTest(TestCase):
         WorkoutSession.objects.create(
             user=self.user, date=week_start - timedelta(days=21), plan_name='A'
         )
-        # 2 giorni distribuiti su 4 settimane (2 delle quali vuote).
+        # 1 giorno su 3 settimane concluse: quella in corso non entra nel
+        # calcolo, né col suo giorno né come divisore.
         r = self.client.get(reverse('workout_calendar'))
-        self.assertEqual(r.context['weekly_average'], 0.5)
+        self.assertEqual(r.context['weekly_average'], 0.3)
+
+    def test_weekly_average_excludes_current_week(self):
+        """
+        La settimana in corso è parziale: contarla farebbe scendere la media
+        ogni lunedì, quindi resta fuori da numeratore e denominatore.
+        """
+        today = timezone.localdate()
+        week_start = self._week_start(today)
+        # 1 giorno la settimana scorsa (unica conclusa)...
+        WorkoutSession.objects.create(
+            user=self.user, date=week_start - timedelta(days=3), plan_name='Passata'
+        )
+        # ...e tutti i giorni disponibili di questa, che non devono contare.
+        for i in range(today.weekday() + 1):
+            WorkoutSession.objects.create(
+                user=self.user, date=week_start + timedelta(days=i), plan_name=f'Oggi{i}'
+            )
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['weekly_average'], 1.0)
+
+    def test_weekly_average_falls_back_to_current_week_when_no_completed_week(self):
+        """Primo allenamento in questa settimana: non c'è media da fare."""
+        week_start = self._week_start()
+        for i in range(min(2, timezone.localdate().weekday() + 1)):
+            WorkoutSession.objects.create(
+                user=self.user, date=week_start + timedelta(days=i), plan_name=f'P{i}'
+            )
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['weekly_average'], r.context['days_this_week'])
+
+    def test_weekly_average_over_completed_weeks_only(self):
+        week_start = self._week_start()
+        # 2 giorni due settimane fa, 1 la settimana scorsa: 3 su 2 settimane.
+        for offset in (14, 12, 7):
+            WorkoutSession.objects.create(
+                user=self.user, date=week_start - timedelta(days=offset), plan_name=f'S{offset}'
+            )
+        r = self.client.get(reverse('workout_calendar'))
+        self.assertEqual(r.context['weekly_average'], 1.5)
 
     def test_weekly_average_zero_without_sessions(self):
         r = self.client.get(reverse('workout_calendar'))

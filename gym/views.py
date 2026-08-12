@@ -1039,16 +1039,26 @@ def workout_calendar(request):
     week_start = today - timedelta(days=today.weekday())
     days_this_week = sum(1 for d in unique_dates if week_start <= d <= today)
 
-    # Media settimanale sull'intero storico: giorni allenati diviso le settimane
-    # trascorse dal primo allenamento a oggi. La settimana in corso rientra nel
-    # conteggio anche se incompleta — è il numero che l'utente si aspetta di
-    # veder salire man mano che si allena, non una media solo su settimane chiuse.
+    # Media settimanale sulle sole settimane concluse: quella in corso è ancora
+    # parziale e, se contata, farebbe scendere la media ogni lunedì.
+    #
+    # La settimana corrente va esclusa da entrambi i lati della divisione:
+    # tenerne i giorni al numeratore dividendoli per le sole settimane
+    # precedenti gonfierebbe il risultato.
     weekly_average = 0
     if unique_dates:
         first_date = unique_dates[-1]
         first_week_start = first_date - timedelta(days=first_date.weekday())
-        weeks_elapsed = (week_start - first_week_start).days // 7 + 1
-        weekly_average = round(len(unique_dates) / weeks_elapsed, 1)
+        completed_weeks = (week_start - first_week_start).days // 7
+
+        if completed_weeks:
+            days_before_this_week = sum(1 for d in unique_dates if d < week_start)
+            weekly_average = round(days_before_this_week / completed_weeks, 1)
+        else:
+            # Primo allenamento in questa stessa settimana: non c'è ancora una
+            # settimana conclusa su cui fare media, quindi si mostra quanto
+            # fatto finora invece di uno 0 che sembrerebbe un errore.
+            weekly_average = days_this_week
 
     # Schede per il selettore rapido nel modale: poche per utente, quindi
     # viaggiano con la pagina e il filtro è istantaneo e offline-friendly
