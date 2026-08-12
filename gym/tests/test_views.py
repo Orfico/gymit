@@ -111,14 +111,50 @@ class DashboardTest(TestCase):
 
     def test_stats_keys_present(self):
         ctx = self._ctx()
-        for key in ('sessions_this_week', 'exercises_tracked', 'active_plans_count', 'greeting'):
+        for key in ('workouts_last_30_days', 'exercises_tracked', 'active_plans_count', 'greeting'):
             self.assertIn(key, ctx)
 
-    def test_sessions_this_week_counts_only_current_week(self):
-        ex = make_exercise('Stacco', MuscleGroup.BACK)
-        make_log(self.user, ex, log_date=date.today())
-        make_log(self.user, ex, log_date=date.today() - timedelta(weeks=2))
-        self.assertEqual(self._ctx()['sessions_this_week'], 1)
+    def test_workouts_last_30_days_counts_sessions_in_window(self):
+        today = timezone.localdate()
+        for offset in (0, 10, 29):
+            WorkoutSession.objects.create(
+                user=self.user, date=today - timedelta(days=offset), plan_name=f'W{offset}'
+            )
+        self.assertEqual(self._ctx()['workouts_last_30_days'], 3)
+
+    def test_workouts_last_30_days_excludes_older_sessions(self):
+        today = timezone.localdate()
+        WorkoutSession.objects.create(
+            user=self.user, date=today - timedelta(days=30), plan_name='Fuori'
+        )
+        self.assertEqual(self._ctx()['workouts_last_30_days'], 0)
+
+    def test_workouts_last_30_days_counts_workouts_not_exercise_logs(self):
+        """
+        Il riquadro conta allenamenti, non le singole righe di carico: un
+        allenamento con più esercizi registrati resta uno.
+        """
+        ex_a = make_exercise('Stacco Dash', MuscleGroup.BACK)
+        ex_b = make_exercise('Panca Dash', MuscleGroup.CHEST)
+        make_log(self.user, ex_a, log_date=date.today())
+        make_log(self.user, ex_b, log_date=date.today())
+        WorkoutSession.objects.create(
+            user=self.user, date=timezone.localdate(), plan_name='Unico'
+        )
+        self.assertEqual(self._ctx()['workouts_last_30_days'], 1)
+
+    def test_workouts_last_30_days_counts_free_workouts(self):
+        WorkoutSession.objects.create(
+            user=self.user, date=timezone.localdate(), plan_name='Cardio', is_free=True
+        )
+        self.assertEqual(self._ctx()['workouts_last_30_days'], 1)
+
+    def test_workouts_last_30_days_ignores_other_users(self):
+        other = make_user('altrodash')
+        WorkoutSession.objects.create(
+            user=other, date=timezone.localdate(), plan_name='Non mio'
+        )
+        self.assertEqual(self._ctx()['workouts_last_30_days'], 0)
 
     def test_exercises_tracked_counts_distinct_exercises_with_logs(self):
         ex_a = make_exercise('Panca Tracked', MuscleGroup.CHEST)

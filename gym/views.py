@@ -90,8 +90,12 @@ def dashboard(request):
 
     muscle_groups.sort(key=lambda x: x['total_logs'], reverse=True)
 
-    week_start = date.today() - timedelta(days=date.today().weekday())
-    sessions_this_week = all_logs.filter(date__gte=week_start).count()
+    # Allenamenti (non log di esercizi) nella finestra di 30 giorni che
+    # finisce oggi: 29 giorni indietro più oggi.
+    window_start = timezone.localdate() - timedelta(days=29)
+    workouts_last_30_days = WorkoutSession.objects.filter(
+        user=request.user, date__gte=window_start
+    ).count()
     active_plans_count = WorkoutPlan.objects.filter(user=request.user, is_active=True).count()
 
     hour = timezone.localtime().hour
@@ -106,7 +110,7 @@ def dashboard(request):
 
     return render(request, 'gym/dashboard.html', {
         'muscle_groups': muscle_groups,
-        'sessions_this_week': sessions_this_week,
+        'workouts_last_30_days': workouts_last_30_days,
         'exercises_tracked': len(exercise_logs),
         'active_plans_count': active_plans_count,
         'greeting': greeting,
