@@ -1,5 +1,5 @@
 {% extends 'gym/base.html' %}
-{% block title %}Aggiungi esercizio — {{ plan.name }}{% endblock %}
+{% block title %}{{ action }} esercizio — {{ plan.name }}{% endblock %}
 
 {% block content %}
 <div class="pt-3">
@@ -8,7 +8,7 @@
             <i class="bi bi-arrow-left"></i>
         </a>
         <div>
-            <h5 class="mb-0 fw-bold">Aggiungi esercizio</h5>
+            <h5 class="mb-0 fw-bold">{{ action }} esercizio</h5>
             <small class="text-secondary">{{ plan.name }}</small>
         </div>
     </div>
@@ -18,7 +18,8 @@
             <form method="post">
                 {% csrf_token %}
 
-                <!-- Esercizio con autocomplete -->
+                {% if form.exercise %}
+                <!-- Aggiunta: si sceglie l'esercizio con l'autocomplete -->
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Esercizio</label>
                     {{ form.exercise }}
@@ -29,12 +30,28 @@
                         <i class="bi bi-search me-1"></i>Digita almeno 2 lettere per cercare
                     </div>
                 </div>
+                {% else %}
+                <!-- Modifica: l'esercizio resta quello, si cambia l'obiettivo -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Esercizio</label>
+                    <div class="d-flex align-items-center gap-2 p-2 rounded border border-secondary">
+                        <i class="bi bi-lightning-charge-fill text-warning"></i>
+                        <div class="flex-grow-1 min-w-0">
+                            <div class="fw-semibold text-truncate">{{ planned.exercise.name }}</div>
+                            <small class="text-secondary">{{ planned.exercise.get_muscle_group_display }}</small>
+                        </div>
+                    </div>
+                    <div class="form-text text-secondary">
+                        Per cambiare esercizio rimuovilo dalla scheda e aggiungi quello nuovo.
+                    </div>
+                </div>
+                {% endif %}
 
                 <!-- Altri campi -->
                 {% for field in form %}
                 {% if field.name != 'exercise' %}
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">{{ field.label }}</label>
+                    <label class="form-label fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>
                     {{ field }}
                     {% if field.errors %}
                     <div class="text-danger small mt-1">{{ field.errors }}</div>
@@ -43,22 +60,37 @@
                 {% endif %}
                 {% endfor %}
 
-                <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2" data-loading-text="Aggiunta...">
-                    Aggiungi alla scheda
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2"
+                        data-loading-text="Salvataggio...">
+                    {% if form.exercise %}Aggiungi alla scheda{% else %}Salva modifiche{% endif %}
                 </button>
             </form>
         </div>
     </div>
 
+    {% if form.exercise %}
     <div class="mt-3">
         <a href="{% url 'exercise_create' %}" class="text-secondary small">
             <i class="bi bi-plus-circle me-1"></i>L'esercizio non è in lista? Crealo
         </a>
     </div>
+    {% else %}
+    <div class="mt-3">
+        <form method="post" action="{% url 'planned_exercise_remove' planned.pk %}"
+              onsubmit="return confirm('Rimuovere &quot;{{ planned.exercise.name|escapejs }}&quot; dalla scheda?');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-danger btn-sm w-100"
+                    data-loading-text="Rimozione...">
+                <i class="bi bi-trash me-1"></i>Rimuovi dalla scheda
+            </button>
+        </form>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
+{% if form.exercise %}
 {% load static %}
 <script src="{% static 'gym/js/autocomplete.js' %}"></script>
 <script>
@@ -69,4 +101,5 @@
         });
     });
 </script>
+{% endif %}
 {% endblock %}

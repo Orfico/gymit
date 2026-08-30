@@ -101,6 +101,13 @@
                             <small class="text-secondary">{{ pe.exercise.get_muscle_group_display }}</small>
                         </a>
 
+                        <a href="{% url 'planned_exercise_edit' pe.pk %}"
+                           class="btn btn-outline-secondary btn-sm flex-shrink-0 planned-edit-btn"
+                           aria-label="Modifica {{ pe.exercise.name }}"
+                           title="Modifica serie e ripetizioni">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+
                     </div>
                     <div class="set-dots mt-2 ps-4"
                          data-planned-exercise-id="{{ pe.pk }}"

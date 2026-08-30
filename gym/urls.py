@@ -23,6 +23,7 @@ urlpatterns = [
 
     # Esercizi in scheda
     path('plans/<int:plan_pk>/add-exercise/', views.planned_exercise_add, name='planned_exercise_add'),
+    path('planned/<int:pk>/edit/', views.planned_exercise_edit, name='planned_exercise_edit'),
     path('planned/<int:pk>/remove/', views.planned_exercise_remove, name='planned_exercise_remove'),
 
     # Log allenamenti
@@ -43,6 +44,9 @@ urlpatterns = [
     path('exercises/<int:pk>/delete/', views.exercise_delete, name='exercise_delete'),
     path('exercises/<int:pk>/video/', views.exercise_video_set, name='exercise_video_set'),
     path('exercises/<int:pk>/video/remove/', views.exercise_video_remove, name='exercise_video_remove'),
+
+    # Preferenze utente
+    path('preferences/video-admin/', views.toggle_video_admin, name='toggle_video_admin'),
 
     # Modifica log allenamento
     path('log/<int:pk>/edit/', views.log_edit, name='log_edit'),

@@ -11,6 +11,7 @@ from django.http import JsonResponse, HttpResponse
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from django.core.exceptions import PermissionDenied
 
@@ -21,11 +22,13 @@ from .forms import (
     ExerciseForm,
     PlanFolderForm,
     ExerciseVideoForm,
+    PlannedExerciseEditForm,
 )
 
 from .models import (
     Exercise, WorkoutPlan, PlannedExercise, ExerciseLog,
-    MuscleGroup, PlanFolder, WorkoutSession,
+    MuscleGroup, PlanFolder, WorkoutSession, UserPreferences,
+    shows_video_admin,
 )
 
 
@@ -321,6 +324,27 @@ def planned_exercise_add(request, plan_pk):
 
 
 @login_required
+def planned_exercise_edit(request, pk):
+    """Corregge serie, ripetizioni e note di un esercizio già in scheda."""
+    planned = get_object_or_404(
+        PlannedExercise.objects.select_related('exercise', 'plan'),
+        pk=pk, plan__user=request.user,
+    )
+    form = PlannedExerciseEditForm(request.POST or None, instance=planned)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, f'"{planned.exercise.name}" aggiornato.')
+        return redirect('plan_detail', pk=planned.plan.pk)
+
+    return render(request, 'gym/planned_exercise_form.html', {
+        'form': form,
+        'plan': planned.plan,
+        'planned': planned,
+        'action': 'Modifica',
+    })
+
+
+@login_required
 def plan_reorder(request, pk):
     """
     Riceve via POST JSON con la nuova sequenza di ID PlannedExercise
@@ -479,9 +503,10 @@ def exercise_progress(request, exercise_id):
         'all': 'Tutto',
     }
     return render(request, 'gym/progress.html', {
-        # Il form di gestione video si mostra solo agli admin; il permesso è
-        # comunque riverificato lato server nelle viste che scrivono.
-        'can_manage_video': request.user.is_staff,
+        # Solo agli admin, e solo se hanno scelto di vederli: è una
+        # preferenza di visualizzazione, il permesso resta verificato lato
+        # server nelle viste che scrivono.
+        'can_manage_video': shows_video_admin(request.user),
         'exercise': exercise,
         'logs': logs.order_by('-date', '-id'),
         'best_one_rm': best,
@@ -1316,3 +1341,34 @@ def exercise_video_remove(request, pk):
         messages.success(request, 'Video rimosso.')
 
     return redirect('exercise_progress', exercise_id=exercise.pk)
+
+
+
+@login_required
+def toggle_video_admin(request):
+    """
+    Accende o spegne gli strumenti di gestione video per l'admin che li usa.
+
+    Cambia solo cosa vede chi ha già i permessi: non concede né revoca nulla,
+    e chi non è staff non ha motivo di toccarla.
+    """
+    if not request.user.is_staff:
+        raise PermissionDenied('Impostazione riservata agli amministratori.')
+
+    if request.method == 'POST':
+        preferences, _ = UserPreferences.objects.get_or_create(user=request.user)
+        preferences.show_video_admin = 'show_video_admin' in request.POST
+        preferences.save(update_fields=['show_video_admin'])
+        messages.success(
+            request,
+            'Strumenti video mostrati.' if preferences.show_video_admin
+            else 'Strumenti video nascosti: vedi le schede come tutti gli altri.'
+        )
+
+    # `next` arriva dal client: si accetta solo se punta a questo sito.
+    destination = request.POST.get('next', '')
+    if not url_has_allowed_host_and_scheme(
+        destination, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        destination = reverse('dashboard')
+    return redirect(destination)

@@ -64,6 +64,33 @@ class PlannedExerciseForm(forms.ModelForm):
         self.fields['exercise'].queryset = Exercise.objects.all()
 
 
+class PlannedExerciseEditForm(forms.ModelForm):
+    """
+    Modifica di un esercizio già in scheda.
+
+    L'esercizio in sé non è modificabile: cambiarlo equivale a toglierne uno
+    e aggiungerne un altro, e si scontrerebbe col vincolo di unicità
+    (plan, exercise). Qui si aggiusta l'obiettivo — serie, ripetizioni, note.
+    """
+    class Meta:
+        model = PlannedExercise
+        fields = ['target_sets', 'target_reps', 'notes']
+        widgets = {
+            'target_sets': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'min': 1, 'max': 20, 'inputmode': 'numeric',
+            }),
+            'target_reps': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'min': 1, 'max': 100, 'inputmode': 'numeric',
+            }),
+            'notes': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'es. Pausa 90s tra le serie',
+            }),
+        }
+
+
 class ExerciseLogForm(forms.ModelForm):
     class Meta:
         model = ExerciseLog
