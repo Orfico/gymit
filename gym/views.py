@@ -12,12 +12,15 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
+from django.core.exceptions import PermissionDenied
+
 from .forms import (
     WorkoutPlanForm,
     PlannedExerciseForm,
     ExerciseLogForm,
     ExerciseForm,
     PlanFolderForm,
+    ExerciseVideoForm,
 )
 
 from .models import (
@@ -476,6 +479,9 @@ def exercise_progress(request, exercise_id):
         'all': 'Tutto',
     }
     return render(request, 'gym/progress.html', {
+        # Il form di gestione video si mostra solo agli admin; il permesso è
+        # comunque riverificato lato server nelle viste che scrivono.
+        'can_manage_video': request.user.is_staff,
         'exercise': exercise,
         'logs': logs.order_by('-date', '-id'),
         'best_one_rm': best,
@@ -1255,3 +1261,58 @@ def session_import(request):
         messages.warning(request, f'... e altri {len(errors) - 5} errori.')
 
     return redirect('workout_calendar')
+
+
+
+# ─── Video tutorial degli esercizi (solo admin) ───────────────────────────────
+
+def _require_video_admin(request):
+    """
+    Il controllo che conta: nascondere il form nel template è cosmetica, qui
+    si rifiuta davvero chi non è staff.
+    """
+    if not request.user.is_staff:
+        raise PermissionDenied('Solo gli amministratori possono gestire i video.')
+
+
+@login_required
+def exercise_video_set(request, pk):
+    """Associa (o sostituisce) il video tutorial di un esercizio."""
+    exercise = get_object_or_404(Exercise, pk=pk)
+    _require_video_admin(request)
+
+    if request.method != 'POST':
+        return redirect('exercise_progress', exercise_id=exercise.pk)
+
+    form = ExerciseVideoForm(request.POST)
+    if form.is_valid():
+        exercise.youtube_video_id = form.video_id
+        exercise.video_added_by = request.user
+        exercise.video_added_at = timezone.now()
+        exercise.save(update_fields=[
+            'youtube_video_id', 'video_added_by', 'video_added_at',
+        ])
+        messages.success(request, 'Video associato all\'esercizio.')
+    else:
+        for error in form.errors.get('url', []):
+            messages.error(request, error)
+
+    return redirect('exercise_progress', exercise_id=exercise.pk)
+
+
+@login_required
+def exercise_video_remove(request, pk):
+    """Rimuove il video tutorial, lasciando intatto il resto dell'esercizio."""
+    exercise = get_object_or_404(Exercise, pk=pk)
+    _require_video_admin(request)
+
+    if request.method == 'POST':
+        exercise.youtube_video_id = None
+        exercise.video_added_by = None
+        exercise.video_added_at = None
+        exercise.save(update_fields=[
+            'youtube_video_id', 'video_added_by', 'video_added_at',
+        ])
+        messages.success(request, 'Video rimosso.')
+
+    return redirect('exercise_progress', exercise_id=exercise.pk)

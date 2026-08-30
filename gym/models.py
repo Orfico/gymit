@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 
+from . import youtube
+
 
 class MuscleGroup(models.TextChoices):
     CHEST = 'chest', 'Petto'
@@ -34,6 +36,24 @@ class Exercise(models.Model):
         related_name='custom_exercises'
     )
 
+    # Video tutorial: un solo video per esercizio, sostituibile dagli admin.
+    # Si salva l'identificativo, non l'URL incollato: gli indirizzi usati nel
+    # markup vengono ricostruiti dalle proprietà qui sotto, così l'input
+    # dell'utente non può finire in un attributo `src`.
+    youtube_video_id = models.CharField(
+        max_length=11, null=True, blank=True, verbose_name='ID video YouTube'
+    )
+    video_added_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='added_exercise_videos',
+        verbose_name='Video aggiunto da'
+    )
+    video_added_at = models.DateTimeField(
+        null=True, blank=True, verbose_name='Video aggiunto il'
+    )
+
     class Meta:
         ordering = ['muscle_group', 'name']
         verbose_name = 'Esercizio'
@@ -41,6 +61,22 @@ class Exercise(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def has_video(self):
+        return bool(self.youtube_video_id)
+
+    @property
+    def video_thumbnail_url(self):
+        return youtube.thumbnail_url(self.youtube_video_id) if self.youtube_video_id else ''
+
+    @property
+    def video_embed_url(self):
+        return youtube.embed_url(self.youtube_video_id) if self.youtube_video_id else ''
+
+    @property
+    def video_watch_url(self):
+        return youtube.watch_url(self.youtube_video_id) if self.youtube_video_id else ''
 
 
 class PlanFolder(models.Model):

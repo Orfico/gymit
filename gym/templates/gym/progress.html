@@ -30,6 +30,81 @@
     <div class="small text-secondary mb-4">{{ exercise.description }}</div>
     {% endif %}
 
+    <!-- Video tutorial — niente iframe né copertina finché non si apre.
+         Gli indirizzi restano attributi data-, che non generano richieste. -->
+    {% if exercise.has_video %}
+    <details class="exercise-video mb-4">
+        <summary class="exercise-video-summary">
+            <i class="bi bi-play-btn-fill text-warning me-2"></i>
+            <span class="fw-semibold flex-grow-1">Vedi video</span>
+            <i class="bi bi-chevron-down small text-secondary"></i>
+        </summary>
+        <div class="exercise-video-stage"
+             data-video-stage
+             data-thumb-url="{{ exercise.video_thumbnail_url }}"
+             data-embed-url="{{ exercise.video_embed_url }}"
+             data-video-title="Video tutorial: {{ exercise.name }}"></div>
+        <noscript>
+            <div class="p-3">
+                <a href="{{ exercise.video_watch_url }}" target="_blank" rel="noopener noreferrer"
+                   class="btn btn-outline-warning btn-sm w-100">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Apri il video su YouTube
+                </a>
+            </div>
+        </noscript>
+    </details>
+    {% endif %}
+
+    <!-- Gestione video — solo amministratori. Il permesso è comunque
+         riverificato lato server dalle viste che scrivono. -->
+    {% if can_manage_video %}
+    <div class="card bg-black border-secondary mb-4">
+        <div class="card-body">
+            <h6 class="text-secondary text-uppercase fw-bold small mb-3">
+                <i class="bi bi-shield-lock me-1"></i>Video tutorial (admin)
+            </h6>
+
+            {% if exercise.has_video %}
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <div class="flex-grow-1 min-w-0 small text-secondary">
+                    Aggiunto da
+                    <span class="text-light">{{ exercise.video_added_by.username|default:"utente rimosso" }}</span>
+                    {% if exercise.video_added_at %}
+                    il {{ exercise.video_added_at|date:"d M Y" }}
+                    {% endif %}
+                </div>
+                <form method="post" action="{% url 'exercise_video_remove' exercise.pk %}" class="m-0 flex-shrink-0">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-danger btn-sm"
+                            data-loading-text="Rimozione...">
+                        <i class="bi bi-trash me-1"></i>Rimuovi
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+
+            <form method="post" action="{% url 'exercise_video_set' exercise.pk %}">
+                {% csrf_token %}
+                <label for="videoUrl" class="form-label fw-semibold small">
+                    {% if exercise.has_video %}Sostituisci il video{% else %}Aggiungi un video{% endif %}
+                </label>
+                <input type="text" name="url" id="videoUrl" class="form-control mb-2"
+                       inputmode="url" autocomplete="off"
+                       placeholder="https://www.youtube.com/watch?v=..."
+                       aria-describedby="videoUrlHelp" required>
+                <div id="videoUrlHelp" class="form-text text-secondary mb-3" style="font-size:11px;">
+                    Vanno bene anche i link <code>youtu.be</code>, <code>/shorts/</code>
+                    e quelli con parametri in coda.
+                </div>
+                <button type="submit" class="btn btn-warning w-100 fw-bold"
+                        data-loading-text="Salvataggio...">
+                    <i class="bi bi-youtube me-1"></i>Salva video
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Best 1RM / best ripetizioni — sempre all-time -->
     {% if exercise.is_bodyweight %}
     {% if best_reps %}
@@ -144,10 +219,17 @@
 {% load static %}
 <script src="{% static 'gym/js/progress_chart.js' %}"></script>
 <script src="{% static 'gym/js/swipe.js' %}"></script>
+{% if exercise.has_video %}
+<script src="{% static 'gym/js/video.js' %}"></script>
+{% endif %}
 <script>
     const chartData = {{ chart_data|safe }};
     if (chartData.length > 1) {
         initProgressChart('progressChart', chartData, {{ exercise.is_bodyweight|yesno:"true,false" }});
+    }
+
+    if (typeof initExerciseVideo === 'function') {
+        initExerciseVideo();
     }
 
     initSwipeToDelete({

@@ -1,5 +1,11 @@
+import logging
+
 from django import forms
+
+from . import youtube
 from .models import WorkoutPlan, PlannedExercise, ExerciseLog, Exercise, PlanFolder
+
+logger = logging.getLogger(__name__)
 
 
 class WorkoutPlanForm(forms.ModelForm):
@@ -124,3 +130,54 @@ class ExerciseForm(forms.ModelForm):
             }),
             'is_bodyweight': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
+
+
+
+class ExerciseVideoForm(forms.Form):
+    """
+    Accetta un URL YouTube in qualunque formato e ne ricava l'id.
+
+    Dopo `is_valid()` l'id sta in `self.video_id`: la vista salva quello, mai
+    il testo incollato.
+    """
+
+    url = forms.CharField(
+        label='Link YouTube',
+        max_length=500,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'https://www.youtube.com/watch?v=...',
+            'autocomplete': 'off',
+            'inputmode': 'url',
+        }),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.video_id = None
+
+    def clean_url(self):
+        raw_url = self.cleaned_data['url']
+
+        video_id = youtube.extract_video_id(raw_url)
+        if video_id is None:
+            raise forms.ValidationError(
+                'Link non valido. Incolla un indirizzo YouTube, per esempio '
+                'https://www.youtube.com/watch?v=... oppure https://youtu.be/...'
+            )
+
+        exists = youtube.video_exists(video_id)
+        if exists is False:
+            raise forms.ValidationError(
+                'Video non trovato su YouTube: potrebbe essere stato rimosso '
+                'o non essere pubblico.'
+            )
+        if exists is None:
+            # Controllo non riuscito: si salva comunque, ma resta traccia nei
+            # log. Bloccare l'admin per un problema di rete sarebbe peggio.
+            logger.warning(
+                'Video %s salvato senza conferma: verifica non riuscita.', video_id
+            )
+
+        self.video_id = video_id
+        return raw_url

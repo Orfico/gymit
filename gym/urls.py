@@ -41,6 +41,8 @@ urlpatterns = [
     path('exercises/create/', views.exercise_create, name='exercise_create'),
     path('exercises/<int:pk>/edit/', views.exercise_edit, name='exercise_edit'),
     path('exercises/<int:pk>/delete/', views.exercise_delete, name='exercise_delete'),
+    path('exercises/<int:pk>/video/', views.exercise_video_set, name='exercise_video_set'),
+    path('exercises/<int:pk>/video/remove/', views.exercise_video_remove, name='exercise_video_remove'),
 
     # Modifica log allenamento
     path('log/<int:pk>/edit/', views.log_edit, name='log_edit'),
