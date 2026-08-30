@@ -79,6 +79,44 @@ class Exercise(models.Model):
         return youtube.watch_url(self.youtube_video_id) if self.youtube_video_id else ''
 
 
+class UserPreferences(models.Model):
+    """
+    Preferenze di visualizzazione del singolo utente.
+
+    Vive in un modello a parte invece che sulla sessione perché una scelta
+    del genere ci si aspetta che resti anche dopo il logout o su un altro
+    dispositivo. È il posto naturale per eventuali preferenze future.
+    """
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='preferences'
+    )
+    show_video_admin = models.BooleanField(
+        default=True, verbose_name='Mostra gli strumenti video'
+    )
+
+    class Meta:
+        verbose_name = 'Preferenze utente'
+        verbose_name_plural = 'Preferenze utente'
+
+    def __str__(self):
+        return f"Preferenze di {self.user.username}"
+
+
+def shows_video_admin(user):
+    """
+    Se all'utente vanno mostrati gli strumenti di gestione video.
+
+    È una preferenza di visualizzazione, non un permesso: chi non è staff
+    non li vede comunque, e chi è staff continua a poter scrivere anche
+    quando ha scelto di nasconderli. La riga di preferenze si crea solo
+    quando l'utente cambia davvero l'impostazione, non a ogni lettura.
+    """
+    if not user.is_authenticated or not user.is_staff:
+        return False
+    preferences = UserPreferences.objects.filter(user=user).first()
+    return preferences.show_video_admin if preferences else True
+
+
 class PlanFolder(models.Model):
     """
     Cartella creata dall'utente per raggruppare le proprie schede.
