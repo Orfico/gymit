@@ -10,6 +10,8 @@ function initSwipeToDelete({ listSelector, onDelete, confirmMessage = 'Eliminare
         const inner = item.querySelector('.swipe-inner');
         const deleteBtn = item.querySelector('.swipe-delete-btn');
         if (!inner) return;
+        // Niente tasto Elimina, niente da rivelare: la riga resta ferma.
+        if (!deleteBtn) return;
 
         let startX = 0, startY = 0, currentX = 0, tracking = false, didSwipe = false;
 

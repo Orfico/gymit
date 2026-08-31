@@ -44,9 +44,11 @@
             <h6 class="text-secondary text-uppercase fw-bold small mb-2 mt-4">{{ group.grouper }}</h6>
             {% for exercise in group.list %}
             <div class="swipe-item mb-2" data-exercise-name="{{ exercise.name }}">
+                {% if exercise.can_manage %}
                 <button class="swipe-delete-btn" data-url="{% url 'exercise_delete' exercise.pk %}">
                     <i class="bi bi-trash"></i>
                 </button>
+                {% endif %}
                 <div class="swipe-inner card bg-black border-secondary">
                     <!-- Tutta la riga apre i progressi: niente bottoni separati -->
                     <a href="{% url 'exercise_progress' exercise.pk %}"

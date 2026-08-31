@@ -24,11 +24,13 @@
                 {% endif %}
             </small>
         </div>
+        {% if can_manage_exercise %}
         <a href="{% url 'exercise_edit' exercise.pk %}"
            class="btn btn-outline-secondary btn-sm flex-shrink-0"
            aria-label="Modifica {{ exercise.name }}" title="Modifica esercizio">
             <i class="bi bi-pencil"></i>
         </a>
+        {% endif %}
     </div>
 
     {% if exercise.description %}

@@ -24,8 +24,10 @@ from gym.views import log_create as log_create_view, dashboard as dashboard_view
 def make_user(username='testuser', password='testpass'):
     return User.objects.create_user(username, password=password)
 
-def make_exercise(name='Squat', muscle=MuscleGroup.LEGS, is_bodyweight=False):
-    return Exercise.objects.create(name=name, muscle_group=muscle, is_bodyweight=is_bodyweight)
+def make_exercise(name='Squat', muscle=MuscleGroup.LEGS, is_bodyweight=False, created_by=None):
+    return Exercise.objects.create(
+        name=name, muscle_group=muscle, is_bodyweight=is_bodyweight, created_by=created_by
+    )
 
 def make_plan(user, name='Test Plan', is_active=True, order=0, folder=None):
     return WorkoutPlan.objects.create(user=user, name=name, is_active=is_active, order=order, folder=folder)
@@ -864,7 +866,7 @@ class ExerciseEditTest(TestCase):
     def setUp(self):
         self.user = make_user('ex_editor')
         self.client.login(username='ex_editor', password='testpass')
-        self.exercise = make_exercise('Squat Originale', MuscleGroup.LEGS)
+        self.exercise = make_exercise('Squat Originale', MuscleGroup.LEGS, created_by=self.user)
 
     def _post(self, **kwargs):
         data = {'name': 'Squat Originale', 'muscle_group': MuscleGroup.LEGS, 'description': ''}
@@ -881,13 +883,15 @@ class ExerciseEditTest(TestCase):
         self.exercise.refresh_from_db()
         self.assertEqual(self.exercise.muscle_group, MuscleGroup.GLUTES)
 
-    def test_edit_predefined_exercise(self):
+    def test_predefined_exercise_is_not_editable(self):
+        """Il catalogo di partenza non ha autore: lo tocca solo un admin."""
         predefined = make_exercise('Predefined Edit', MuscleGroup.CHEST)
-        self.client.post(reverse('exercise_edit', kwargs={'pk': predefined.pk}), {
+        r = self.client.post(reverse('exercise_edit', kwargs={'pk': predefined.pk}), {
             'name': 'Predefined Edit Renamed', 'muscle_group': MuscleGroup.CHEST, 'description': '',
         })
+        self.assertEqual(r.status_code, 403)
         predefined.refresh_from_db()
-        self.assertEqual(predefined.name, 'Predefined Edit Renamed')
+        self.assertEqual(predefined.name, 'Predefined Edit')
 
     def test_redirects_to_exercise_list_on_success(self):
         r = self._post(name='Squat Redirect')
@@ -915,16 +919,18 @@ class ExerciseDeleteTest(TestCase):
     def setUp(self):
         self.user = make_user('ex_deleter')
         self.client.login(username='ex_deleter', password='testpass')
-        self.exercise = make_exercise('Squat Delete', MuscleGroup.LEGS)
+        self.exercise = make_exercise('Squat Delete', MuscleGroup.LEGS, created_by=self.user)
 
     def test_delete_removes_exercise(self):
         self.client.post(reverse('exercise_delete', kwargs={'pk': self.exercise.pk}))
         self.assertFalse(Exercise.objects.filter(pk=self.exercise.pk).exists())
 
-    def test_delete_predefined_exercise(self):
+    def test_predefined_exercise_is_not_deletable(self):
+        """Il catalogo di partenza vale come creato dagli admin."""
         predefined = make_exercise('Predefined', MuscleGroup.CHEST)
-        self.client.post(reverse('exercise_delete', kwargs={'pk': predefined.pk}))
-        self.assertFalse(Exercise.objects.filter(pk=predefined.pk).exists())
+        r = self.client.post(reverse('exercise_delete', kwargs={'pk': predefined.pk}))
+        self.assertEqual(r.status_code, 403)
+        self.assertTrue(Exercise.objects.filter(pk=predefined.pk).exists())
 
     def test_delete_also_removes_logs(self):
         make_log(self.user, self.exercise)
@@ -1879,7 +1885,7 @@ class ExerciseListNavigationTest(TestCase):
     def setUp(self):
         self.user = make_user('listnav')
         self.client.login(username='listnav', password='testpass')
-        self.exercise = make_exercise('Panca Nav', MuscleGroup.CHEST)
+        self.exercise = make_exercise('Panca Nav', MuscleGroup.CHEST, created_by=self.user)
 
     def _list(self):
         return self.client.get(reverse('exercise_list'))
@@ -1917,7 +1923,7 @@ class ExerciseProgressEditLinkTest(TestCase):
     def setUp(self):
         self.user = make_user('editlink')
         self.client.login(username='editlink', password='testpass')
-        self.exercise = make_exercise('Squat Edit Link', MuscleGroup.LEGS)
+        self.exercise = make_exercise('Squat Edit Link', MuscleGroup.LEGS, created_by=self.user)
 
     def test_edit_link_present(self):
         response = self.client.get(
@@ -1929,3 +1935,181 @@ class ExerciseProgressEditLinkTest(TestCase):
         response = self.client.get(reverse('exercise_edit', args=[self.exercise.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Squat Edit Link')
+
+
+class ExerciseEditPermissionTest(TestCase):
+    """
+    Il catalogo è condiviso, la gestione no: modifica ed eliminazione le fa
+    l'autore, o un admin. Chi non può non vede nemmeno i comandi.
+    """
+
+    PENCIL = 'bi-pencil'
+
+    def setUp(self):
+        self.owner = make_user('proprietario')
+        self.other = make_user('estraneo')
+        self.admin = User.objects.create_user('capo', password='testpass', is_staff=True)
+        self.exercise = make_exercise('Rematore Mio', MuscleGroup.BACK, created_by=self.owner)
+        self.orphan = make_exercise('Rematore Catalogo', MuscleGroup.BACK)
+
+    def _login(self, username):
+        self.client.login(username=username, password='testpass')
+
+    def _edit_url(self, exercise=None):
+        return reverse('exercise_edit', args=[(exercise or self.exercise).pk])
+
+    def _progress(self, exercise=None):
+        return self.client.get(
+            reverse('exercise_progress', args=[(exercise or self.exercise).pk])
+        )
+
+    def _rename(self, exercise=None, name='Rinominato'):
+        return self.client.post(self._edit_url(exercise), {
+            'name': name, 'muscle_group': MuscleGroup.BACK, 'description': '',
+        })
+
+    # ── Permessi sulla vista ────────────────────────────────────────────
+
+    def test_owner_can_open_edit(self):
+        self._login('proprietario')
+        self.assertEqual(self.client.get(self._edit_url()).status_code, 200)
+
+    def test_owner_can_save(self):
+        self._login('proprietario')
+        self._rename(name='Rematore Rinominato')
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.name, 'Rematore Rinominato')
+
+    def test_other_user_cannot_open_edit(self):
+        self._login('estraneo')
+        self.assertEqual(self.client.get(self._edit_url()).status_code, 403)
+
+    def test_other_user_cannot_save(self):
+        """Il 403 non basta: va verificato che il dato non sia cambiato."""
+        self._login('estraneo')
+        r = self._rename(name='Scippato')
+        self.assertEqual(r.status_code, 403)
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.name, 'Rematore Mio')
+
+    def test_admin_can_edit_someone_elses_exercise(self):
+        self._login('capo')
+        self._rename(name='Corretto Dallo Staff')
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.name, 'Corretto Dallo Staff')
+
+    def test_admin_can_edit_catalog_exercise_without_author(self):
+        self._login('capo')
+        self._rename(self.orphan, name='Catalogo Corretto')
+        self.orphan.refresh_from_db()
+        self.assertEqual(self.orphan.name, 'Catalogo Corretto')
+
+    def test_regular_user_cannot_edit_catalog_exercise(self):
+        self._login('estraneo')
+        self.assertEqual(self.client.get(self._edit_url(self.orphan)).status_code, 403)
+
+    # ── Visibilità della matita ─────────────────────────────────────────
+
+    def test_owner_sees_pencil(self):
+        self._login('proprietario')
+        r = self._progress()
+        self.assertContains(r, self.PENCIL)
+        self.assertContains(r, self._edit_url())
+
+    def test_other_user_does_not_see_pencil(self):
+        self._login('estraneo')
+        r = self._progress()
+        self.assertNotContains(r, self.PENCIL)
+        self.assertNotContains(r, self._edit_url())
+
+    def test_admin_sees_pencil_on_someone_elses_exercise(self):
+        self._login('capo')
+        self.assertContains(self._progress(), self._edit_url())
+
+    def test_regular_user_does_not_see_pencil_on_catalog_exercise(self):
+        self._login('estraneo')
+        self.assertNotContains(self._progress(self.orphan), self._edit_url(self.orphan))
+
+    # ── Eliminazione ────────────────────────────────────────────────────
+
+    def _delete(self, exercise=None):
+        return self.client.post(
+            reverse('exercise_delete', args=[(exercise or self.exercise).pk])
+        )
+
+    def test_owner_can_delete(self):
+        self._login('proprietario')
+        self._delete()
+        self.assertFalse(Exercise.objects.filter(pk=self.exercise.pk).exists())
+
+    def test_other_user_cannot_delete(self):
+        self._login('estraneo')
+        self.assertEqual(self._delete().status_code, 403)
+        self.assertTrue(Exercise.objects.filter(pk=self.exercise.pk).exists())
+
+    def test_other_user_cannot_delete_someone_elses_logs(self):
+        """
+        Il danno vero dell'eliminazione non è l'esercizio ma il CASCADE:
+        senza guardia un estraneo cancellerebbe lo storico del proprietario.
+        """
+        make_log(self.owner, self.exercise)
+        self._login('estraneo')
+        self._delete()
+        self.assertEqual(ExerciseLog.objects.filter(exercise=self.exercise).count(), 1)
+
+    def test_admin_can_delete_someone_elses_exercise(self):
+        self._login('capo')
+        self._delete()
+        self.assertFalse(Exercise.objects.filter(pk=self.exercise.pk).exists())
+
+    def test_admin_can_delete_catalog_exercise(self):
+        self._login('capo')
+        self._delete(self.orphan)
+        self.assertFalse(Exercise.objects.filter(pk=self.orphan.pk).exists())
+
+    def test_regular_user_cannot_delete_catalog_exercise(self):
+        self._login('estraneo')
+        self.assertEqual(self._delete(self.orphan).status_code, 403)
+        self.assertTrue(Exercise.objects.filter(pk=self.orphan.pk).exists())
+
+    # ── Tasto Elimina nella lista ───────────────────────────────────────
+
+    def _list(self):
+        return self.client.get(reverse('exercise_list'))
+
+    def test_owner_sees_delete_button(self):
+        self._login('proprietario')
+        self.assertContains(self._list(), reverse('exercise_delete', args=[self.exercise.pk]))
+
+    def test_other_user_does_not_see_delete_button(self):
+        self._login('estraneo')
+        r = self._list()
+        self.assertContains(r, 'Rematore Mio')  # la riga c'è...
+        self.assertNotContains(  # ...ma senza tasto Elimina
+            r, reverse('exercise_delete', args=[self.exercise.pk])
+        )
+
+    def test_admin_sees_delete_button_on_every_exercise(self):
+        self._login('capo')
+        r = self._list()
+        self.assertContains(r, reverse('exercise_delete', args=[self.exercise.pk]))
+        self.assertContains(r, reverse('exercise_delete', args=[self.orphan.pk]))
+
+    def test_regular_user_sees_no_delete_button_on_catalog(self):
+        self._login('estraneo')
+        self.assertNotContains(
+            self._list(), reverse('exercise_delete', args=[self.orphan.pk])
+        )
+
+    # ── Regola in sé, senza passare dalle viste ─────────────────────────
+
+    def test_can_be_managed_by_rules(self):
+        self.assertTrue(self.exercise.can_be_managed_by(self.owner))
+        self.assertFalse(self.exercise.can_be_managed_by(self.other))
+        self.assertTrue(self.exercise.can_be_managed_by(self.admin))
+        self.assertFalse(self.orphan.can_be_managed_by(self.owner))
+        self.assertTrue(self.orphan.can_be_managed_by(self.admin))
+
+    def test_anonymous_user_cannot_edit(self):
+        from django.contrib.auth.models import AnonymousUser
+        self.assertFalse(self.exercise.can_be_managed_by(AnonymousUser()))

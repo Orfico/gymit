@@ -507,6 +507,9 @@ def exercise_progress(request, exercise_id):
         # preferenza di visualizzazione, il permesso resta verificato lato
         # server nelle viste che scrivono.
         'can_manage_video': shows_video_admin(request.user),
+        # La matita accanto al nome: nasconderla non basta, exercise_edit
+        # ricontrolla comunque il permesso.
+        'can_manage_exercise': exercise.can_be_managed_by(request.user),
         'exercise': exercise,
         'logs': logs.order_by('-date', '-id'),
         'best_one_rm': best,
@@ -569,6 +572,13 @@ def exercise_list(request):
     if muscle_filter:
         exercises = exercises.filter(muscle_group=muscle_filter)
 
+    # Il tasto Elimina compare solo dove serve. Si passa dal metodo del
+    # modello invece di riscrivere la regola in SQL: resta una sola fonte
+    # di verità, condivisa con exercise_edit e exercise_delete.
+    exercises = list(exercises)
+    for exercise in exercises:
+        exercise.can_manage = exercise.can_be_managed_by(request.user)
+
     from .models import MuscleGroup
     return render(request, 'gym/exercise_list.html', {
         'exercises': exercises,
@@ -622,6 +632,8 @@ def exercise_create(request):
 @login_required
 def exercise_edit(request, pk):
     exercise = get_object_or_404(Exercise, pk=pk)
+    if not exercise.can_be_managed_by(request.user):
+        raise PermissionDenied('Puoi modificare solo gli esercizi che hai creato.')
     form = ExerciseForm(request.POST or None, instance=exercise)
     if form.is_valid():
         form.save()
@@ -632,6 +644,8 @@ def exercise_edit(request, pk):
 @login_required
 def exercise_delete(request, pk):
     exercise = get_object_or_404(Exercise, pk=pk)
+    if not exercise.can_be_managed_by(request.user):
+        raise PermissionDenied('Puoi eliminare solo gli esercizi che hai creato.')
     if request.method == 'POST':
         name = exercise.name
         exercise.delete()  # CASCADE elimina anche tutti gli ExerciseLog associati

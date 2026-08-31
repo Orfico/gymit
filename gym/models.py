@@ -62,6 +62,23 @@ class Exercise(models.Model):
     def __str__(self):
         return self.name
 
+    def can_be_managed_by(self, user):
+        """
+        Chi può modificare o eliminare questo esercizio.
+
+        Il catalogo è condiviso da tutti gli utenti, quindi la gestione resta
+        a chi l'ha creato: gli altri vedrebbero cambiare sotto i piedi un
+        esercizio che usano nelle proprie schede, e un'eliminazione porta via
+        in cascata anche i log altrui. Gli amministratori intervengono
+        ovunque, compreso il catalogo di partenza: quello non ha un autore e
+        vale come se l'avessero creato loro.
+        """
+        if not user.is_authenticated:
+            return False
+        if user.is_staff:
+            return True
+        return self.created_by_id is not None and self.created_by_id == user.pk
+
     @property
     def has_video(self):
         return bool(self.youtube_video_id)
