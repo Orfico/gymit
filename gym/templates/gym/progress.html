@@ -9,7 +9,7 @@
         <a href="{% if request.GET.plan %}{% url 'plan_detail' request.GET.plan %}{% else %}{% url 'progress_overview' %}{% endif %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left"></i>
         </a>
-        <div>
+        <div class="flex-grow-1 min-w-0">
             <h5 class="mb-0 fw-bold">{{ exercise.name }}</h5>
             <small class="text-secondary">
                 {{ exercise.get_muscle_group_display }}
@@ -24,6 +24,11 @@
                 {% endif %}
             </small>
         </div>
+        <a href="{% url 'exercise_edit' exercise.pk %}"
+           class="btn btn-outline-secondary btn-sm flex-shrink-0"
+           aria-label="Modifica {{ exercise.name }}" title="Modifica esercizio">
+            <i class="bi bi-pencil"></i>
+        </a>
     </div>
 
     {% if exercise.description %}

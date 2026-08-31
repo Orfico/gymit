@@ -1196,13 +1196,17 @@ class WorkoutCalendarTest(TestCase):
         self.assertEqual(r.context['weekly_average'], 1.0)
 
     def test_weekly_average_single_week(self):
-        week_start = self._week_start()
-        for i in range(3):
+        today = timezone.localdate()
+        week_start = self._week_start(today)
+        # Solo i giorni già trascorsi: di lunedì ce n'è uno solo, e le date
+        # future restano fuori dal conteggio della settimana in corso.
+        elapsed = min(3, today.weekday() + 1)
+        for i in range(elapsed):
             WorkoutSession.objects.create(
                 user=self.user, date=week_start + timedelta(days=i), plan_name=f'P{i}'
             )
         r = self.client.get(reverse('workout_calendar'))
-        self.assertEqual(r.context['weekly_average'], 3.0)
+        self.assertEqual(r.context['weekly_average'], elapsed)
 
     def test_weekly_average_counts_empty_weeks_in_between(self):
         """Le settimane senza allenamenti abbassano la media, non spariscono."""
@@ -1864,3 +1868,64 @@ class FreeWorkoutCalendarTest(TestCase):
         })
         self.assertEqual(WorkoutSession.objects.filter(user=self.user).count(), 1)
         self.assertEqual(WorkoutSession.objects.filter(user=other).count(), 0)
+
+
+class ExerciseListNavigationTest(TestCase):
+    """
+    Nella lista degli esercizi la riga intera porta ai progressi: i bottoni
+    per log, progressi e modifica non ci sono più.
+    """
+
+    def setUp(self):
+        self.user = make_user('listnav')
+        self.client.login(username='listnav', password='testpass')
+        self.exercise = make_exercise('Panca Nav', MuscleGroup.CHEST)
+
+    def _list(self):
+        return self.client.get(reverse('exercise_list'))
+
+    def test_row_links_to_progress(self):
+        self.assertContains(
+            self._list(), reverse('exercise_progress', args=[self.exercise.pk])
+        )
+
+    def test_no_edit_button_in_list(self):
+        self.assertNotContains(
+            self._list(), reverse('exercise_edit', args=[self.exercise.pk])
+        )
+
+    def test_no_log_shortcut_in_list(self):
+        """
+        Si controlla la forma con query string: il link generico al log
+        resta nella barra di navigazione ed è un'altra cosa.
+        """
+        shortcut = f"{reverse('log_create')}?exercise={self.exercise.pk}"
+        self.assertNotContains(self._list(), shortcut)
+
+    def test_delete_still_reachable_by_swipe(self):
+        self.assertContains(
+            self._list(), reverse('exercise_delete', args=[self.exercise.pk])
+        )
+
+    def test_exercise_name_still_shown(self):
+        self.assertContains(self._list(), 'Panca Nav')
+
+
+class ExerciseProgressEditLinkTest(TestCase):
+    """Dalla pagina dei progressi si raggiunge la modifica dell'esercizio."""
+
+    def setUp(self):
+        self.user = make_user('editlink')
+        self.client.login(username='editlink', password='testpass')
+        self.exercise = make_exercise('Squat Edit Link', MuscleGroup.LEGS)
+
+    def test_edit_link_present(self):
+        response = self.client.get(
+            reverse('exercise_progress', args=[self.exercise.pk])
+        )
+        self.assertContains(response, reverse('exercise_edit', args=[self.exercise.pk]))
+
+    def test_edit_page_opens(self):
+        response = self.client.get(reverse('exercise_edit', args=[self.exercise.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Squat Edit Link')
