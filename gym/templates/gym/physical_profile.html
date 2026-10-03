@@ -44,5 +44,42 @@
             </form>
         </div>
     </div>
+
+    <!-- Riepilogo dei benchmark — fuori dal form: sono risultati, non dati da modificare -->
+    <div class="d-flex align-items-center gap-2 mt-4 mb-3">
+        <h6 class="text-secondary text-uppercase fw-bold small mb-0">
+            <i class="bi bi-trophy me-1"></i>I tuoi benchmark di forza
+        </h6>
+    </div>
+
+    {% if benchmark_items %}
+    <div class="row g-3">
+        {% for item in benchmark_items %}
+        <div class="col-12 col-md-6">
+            {% include 'gym/_benchmark_card.html' with benchmark_data=item.benchmark_data summary_exercise=item.exercise standard_label=item.standard_label %}
+        </div>
+        {% endfor %}
+    </div>
+    <div class="small text-secondary mt-3" style="font-size:11.5px;">
+        Per ogni standard conta l'esercizio in cui hai il 1RM più alto. Tocca un riquadro per vedere i progressi.
+    </div>
+    {% elif has_logged_standards and profile_incomplete %}
+    <div class="card bg-black border-secondary">
+        <div class="card-body small text-secondary">
+            <i class="bi bi-info-circle me-1"></i>
+            Hai già dei carichi registrati su esercizi con benchmark. Inserisci <strong>peso corporeo</strong>
+            e <strong>sesso</strong> qui sopra per vedere a che livello sei.
+        </div>
+    </div>
+    {% else %}
+    <div class="card bg-black border-secondary">
+        <div class="card-body small text-secondary">
+            <i class="bi bi-info-circle me-1"></i>
+            Registra un allenamento in un esercizio con benchmark (come panca, squat o stacco: li riconosci dal
+            badge <span class="badge bg-warning text-dark fw-normal"><i class="bi bi-trophy"></i> Benchmark</span>
+            nell'<a href="{% url 'exercise_list' %}" class="text-warning">elenco esercizi</a>) e comparirà qui.
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

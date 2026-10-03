@@ -881,3 +881,143 @@ class DumbbellKeysMigrationTest(TestCase):
         self.assertEqual(Exercise.objects.get(name='Curl Manubri').standard_key, 'dumbbell_curl')
         self.assertEqual(Exercise.objects.get(name='Alzate Laterali').standard_key, 'squat')
         self.assertIsNone(Exercise.objects.get(name='Shoulder Press').standard_key)
+
+
+class BenchmarkSummaryTest(TestCase):
+    """Riepilogo dei benchmark nella pagina "Profilo fisico"."""
+
+    def setUp(self):
+        self.user = make_user()
+        self.client.force_login(self.user)
+        self.url = reverse('physical_profile')
+        self.bench = make_bench()
+        self.squat = Exercise.objects.create(
+            name='Squat', muscle_group=MuscleGroup.LEGS, standard_key='squat'
+        )
+        self.curl = Exercise.objects.create(name='Curl', muscle_group=MuscleGroup.BICEPS)
+
+    def log(self, exercise, weight, reps=1, user=None):
+        return ExerciseLog.objects.create(
+            user=user or self.user, exercise=exercise, date=date.today(),
+            sets=1, reps=reps, weight=weight,
+        )
+
+    def get(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def test_empty_state_without_logs(self):
+        fill_profile(self.user)
+        response = self.get()
+        self.assertEqual(response.context['benchmark_items'], [])
+        self.assertContains(response, 'I tuoi benchmark di forza')
+        self.assertContains(response, 'Registra un allenamento in un esercizio con benchmark')
+
+    def test_lists_exercises_with_logs_and_a_standard(self):
+        fill_profile(self.user)
+        self.log(self.bench, 80)
+        self.log(self.squat, 100)
+        self.log(self.curl, 30)  # senza standard: non compare
+        items = self.get().context['benchmark_items']
+        self.assertEqual([i['exercise'].name for i in items], ['Panca Piana', 'Squat'])
+
+    def test_exercise_without_logs_is_not_listed(self):
+        fill_profile(self.user)
+        self.log(self.bench, 80)
+        items = self.get().context['benchmark_items']
+        self.assertEqual(len(items), 1)
+
+    def test_order_follows_curated_standard_order(self):
+        fill_profile(self.user)
+        self.log(self.squat, 100)
+        self.log(self.bench, 80)
+        names = [i['exercise'].name for i in self.get().context['benchmark_items']]
+        self.assertEqual(names, ['Panca Piana', 'Squat'])  # panca prima di squat
+
+    def test_same_standard_keeps_exercise_with_highest_one_rm(self):
+        fill_profile(self.user)
+        wide = Exercise.objects.create(
+            name='Panca Larga', muscle_group=MuscleGroup.CHEST, standard_key='bench_press'
+        )
+        self.log(self.bench, 80)
+        self.log(wide, 95)
+        items = self.get().context['benchmark_items']
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['exercise'].name, 'Panca Larga')
+        self.assertEqual(items[0]['benchmark_data']['percentage'], round(95 / 98 * 100))
+
+    def test_comparison_is_on_one_rm_not_on_weight(self):
+        """5 ripetizioni a 90 kg valgono più di 1 ripetizione a 95 kg."""
+        fill_profile(self.user)
+        wide = Exercise.objects.create(
+            name='Panca Larga', muscle_group=MuscleGroup.CHEST, standard_key='bench_press'
+        )
+        self.log(self.bench, 90, reps=5)   # 1RM 105
+        self.log(wide, 95, reps=1)         # 1RM 95
+        items = self.get().context['benchmark_items']
+        self.assertEqual(items[0]['exercise'].name, 'Panca Piana')
+
+    def test_other_users_logs_are_ignored(self):
+        fill_profile(self.user)
+        other = make_user('other')
+        self.log(self.bench, 200, user=other)
+        self.assertEqual(self.get().context['benchmark_items'], [])
+
+    def test_hint_when_profile_incomplete_but_logs_exist(self):
+        self.log(self.bench, 80)
+        response = self.get()
+        self.assertEqual(response.context['benchmark_items'], [])
+        self.assertTrue(response.context['has_logged_standards'])
+        self.assertContains(response, 'Hai già dei carichi registrati')
+
+    def test_summary_cards_reuse_the_detail_markup_and_link_to_progress(self):
+        fill_profile(self.user)
+        self.log(self.bench, 80)
+        response = self.get()
+        self.assertContains(response, 'Target (Intermedio)')
+        self.assertContains(response, '98,0 kg')
+        self.assertContains(response, reverse('exercise_progress', args=[self.bench.pk]))
+        self.assertContains(response, 'role="progressbar"')
+
+    def test_shows_mapped_standard_name_when_it_differs(self):
+        fill_profile(self.user)
+        wide = Exercise.objects.create(
+            name='Panca Larga', muscle_group=MuscleGroup.CHEST, standard_key='bench_press'
+        )
+        self.log(wide, 80)
+        self.assertContains(self.get(), 'Benchmark: Panca piana')
+
+    def test_summary_is_outside_the_form(self):
+        fill_profile(self.user)
+        self.log(self.bench, 80)
+        html = self.get().content.decode()
+        self.assertLess(html.index('</form>'), html.index('I tuoi benchmark di forza'))
+
+    def test_dumbbell_summary_card_links_to_the_setting_on_the_same_page(self):
+        fill_profile(self.user)
+        db_bench = Exercise.objects.create(
+            name='Panca Manubri', muscle_group=MuscleGroup.CHEST,
+            standard_key='dumbbell_bench_press',
+        )
+        self.log(db_bench, 40)
+        response = self.get()
+        self.assertContains(response, 'per manubrio')
+        self.assertContains(response, '#id_dumbbell_weight_mode')
+
+    def test_invalid_post_does_not_leak_unsaved_data_into_summary(self):
+        fill_profile(self.user)
+        self.log(self.bench, 80)
+        response = self.client.post(self.url, {
+            'body_weight': '9999', 'training_level': 'beginner',
+        })
+        self.assertEqual(response.status_code, 200)
+        items = response.context['benchmark_items']
+        self.assertEqual(items[0]['benchmark_data']['benchmark_1rm'], 98.0)
+
+    def test_detail_page_still_renders_the_card(self):
+        fill_profile(self.user)
+        self.log(self.bench, 80)
+        response = self.client.get(reverse('exercise_progress', args=[self.bench.pk]))
+        self.assertContains(response, 'Benchmark di forza')
+        self.assertContains(response, 'Target (Intermedio)')

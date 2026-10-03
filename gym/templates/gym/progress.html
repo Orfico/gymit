@@ -136,68 +136,7 @@
     <!-- Benchmark di forza — solo per gli esercizi con standard consolidati.
          Confronto a runtime col miglior 1RM sopra: non salvato da nessuna parte. -->
     {% if has_standard %}
-    <div class="card bg-black border-secondary mb-4">
-        <div class="card-body">
-            <h6 class="text-secondary text-uppercase fw-bold small mb-3">
-                <i class="bi bi-trophy me-1"></i>Benchmark di forza
-            </h6>
-
-            {% if profile_incomplete %}
-            <p class="small text-secondary mb-0">
-                Completa il tuo <a href="{% url 'physical_profile' %}" class="text-warning">profilo fisico</a>
-                (peso e sesso) per vedere il benchmark di questo esercizio.
-            </p>
-            {% elif benchmark_data %}
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="small text-secondary">
-                    Target ({{ benchmark_data.training_level_display }})
-                </span>
-                <strong>{{ benchmark_data.benchmark_1rm|floatformat:1 }} kg{% if benchmark_data.dumbbell %} per manubrio{% endif %}</strong>
-            </div>
-
-            {% if benchmark_data.percentage is not None %}
-            <div class="progress mb-2" style="height: 20px;"
-                 role="progressbar" aria-label="1RM rispetto al benchmark"
-                 aria-valuenow="{{ benchmark_data.percentage }}" aria-valuemin="0" aria-valuemax="100">
-                <div class="progress-bar {{ benchmark_data.bar_class }} {% if benchmark_data.bar_class == 'bg-warning' or benchmark_data.bar_class == 'bg-info' %}text-dark{% endif %} fw-semibold"
-                     style="width: {{ benchmark_data.bar_width }}%">
-                    {{ benchmark_data.percentage }}%
-                </div>
-            </div>
-            <div class="small text-secondary">
-                {% if benchmark_data.current_level_display %}
-                Il tuo livello su questo esercizio:
-                <span class="badge bg-warning text-dark">{{ benchmark_data.current_level_display }}</span>
-                {% else %}
-                Sotto il livello Principiante per il tuo peso corporeo.
-                {% endif %}
-            </div>
-            {% else %}
-            <p class="small text-secondary mb-0">
-                Registra un allenamento con questo esercizio per confrontare il tuo 1RM col benchmark.
-            </p>
-            {% endif %}
-
-            {% if benchmark_data.dumbbell %}
-            <div class="small text-secondary mt-2 pt-2 border-top border-secondary" style="font-size:11.5px;">
-                <i class="bi bi-info-circle me-1"></i>
-                {% if benchmark_data.dumbbell.mode == 'total' %}
-                Consideriamo il carico dei log come la <strong>somma dei due manubri</strong>
-                {% if benchmark_data.dumbbell.per_dumbbell_one_rm %}(il tuo 1RM per manubrio: {{ benchmark_data.dumbbell.per_dumbbell_one_rm|floatformat:1 }} kg){% endif %}.
-                {% else %}
-                Consideriamo il carico dei log come il peso di <strong>un singolo manubrio</strong>.
-                {% endif %}
-                {% if benchmark_data.dumbbell.source == 'deduced' %}
-                Lo abbiamo dedotto dai tuoi log.
-                {% elif benchmark_data.dumbbell.source == 'default' %}
-                È l'ipotesi di partenza: non abbiamo log per dedurlo.
-                {% endif %}
-                <a href="{% url 'physical_profile' %}" class="text-warning">Non è così? Cambia</a>
-            </div>
-            {% endif %}
-            {% endif %}
-        </div>
-    </div>
+    {% include 'gym/_benchmark_card.html' %}
     {% endif %}
 
     <!-- Selettore temporale -->

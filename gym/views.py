@@ -33,7 +33,7 @@ from .models import (
 )
 from .strength_standards import (
     compute_benchmark, highest_level_reached, PAIRED_DUMBBELL, DEDUCTION_PAIRS,
-    dumbbell_mode_from_ratio,
+    dumbbell_mode_from_ratio, STANDARD_LABELS,
 )
 
 
@@ -1535,4 +1535,58 @@ def physical_profile(request):
         form.save()
         messages.success(request, 'Profilo fisico aggiornato.')
         return redirect('physical_profile')
-    return render(request, 'gym/physical_profile.html', {'form': form})
+
+    logged_exercises = _best_exercise_per_standard(request.user)
+    # Il riepilogo guarda il profilo salvato, non `profile`: dopo un invio non
+    # valido quest'ultimo contiene dati che nel database non ci sono.
+    saved_profile = request.user.userprofile
+    items = (
+        _benchmark_summary(request.user, logged_exercises)
+        if saved_profile.has_benchmark_data else []
+    )
+    return render(request, 'gym/physical_profile.html', {
+        'form': form,
+        'benchmark_items': items,
+        'has_logged_standards': bool(logged_exercises),
+        'profile_incomplete': not saved_profile.has_benchmark_data,
+    })
+
+
+def _best_exercise_per_standard(user):
+    """
+    Per ogni standard su cui l'utente ha dei carichi, l'esercizio col 1RM più
+    alto: {chiave: (exercise_id, miglior_1rm)}.
+
+    Più esercizi possono puntare allo stesso standard (es. "Panca Piana" e
+    "Panca Larga"): nel riepilogo ne conta uno solo, il migliore.
+    """
+    rows = (
+        ExerciseLog.objects
+        .filter(user=user, exercise__standard_key__in=list(STANDARD_LABELS), one_rm__isnull=False)
+        .order_by()
+        .values('exercise_id', 'exercise__standard_key')
+        .annotate(best=Max('one_rm'))
+    )
+    best = {}
+    for row in rows:
+        key = row['exercise__standard_key']
+        if key not in best or row['best'] > best[key][1]:
+            best[key] = (row['exercise_id'], row['best'])
+    return best
+
+
+def _benchmark_summary(user, best_per_standard):
+    """Un elemento per standard, nell'ordine curato di STANDARD_LABELS."""
+    exercises = Exercise.objects.in_bulk([exercise_id for exercise_id, _ in best_per_standard.values()])
+    items = []
+    for key, label in STANDARD_LABELS.items():
+        if key not in best_per_standard:
+            continue
+        exercise_id, best_one_rm = best_per_standard[key]
+        exercise = exercises[exercise_id]
+        data = _benchmark_context(user, exercise, best_one_rm)['benchmark_data']
+        if data:
+            items.append({
+                'exercise': exercise, 'standard_label': label, 'benchmark_data': data,
+            })
+    return items
