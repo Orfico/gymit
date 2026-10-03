@@ -174,7 +174,7 @@ class UserProfile(models.Model):
     )
     sex = models.CharField(
         max_length=1,
-        choices=[('M', 'Uomo'), ('F', 'Donna')],
+        choices=[('M', 'Maschio'), ('F', 'Femmina')],
         null=True, blank=True,
         verbose_name='Sesso'
     )

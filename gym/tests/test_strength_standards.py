@@ -354,6 +354,13 @@ class PhysicalProfileViewTest(TestCase):
         response = self.client.post(self.url, {'training_level': 'beginner'})
         self.assertRedirects(response, self.url)
 
+    def test_sex_labels_are_maschio_femmina(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, '>Maschio<')
+        self.assertContains(response, '>Femmina<')
+        self.assertNotContains(response, '>Uomo<')
+        self.assertNotContains(response, '>Donna<')
+
     def test_navbar_links_to_profile(self):
         response = self.client.get(reverse('dashboard'))
         self.assertContains(response, self.url)
