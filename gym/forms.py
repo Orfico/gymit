@@ -194,7 +194,7 @@ class UserProfileForm(forms.ModelForm):
     """Dati fisici per i benchmark. Tutti facoltativi: si può salvare vuoto."""
     class Meta:
         model = UserProfile
-        fields = ['body_weight', 'sex', 'birth_date', 'training_level']
+        fields = ['body_weight', 'sex', 'birth_date', 'training_level', 'dumbbell_weight_mode']
         widgets = {
             'body_weight': forms.NumberInput(attrs={
                 'class': 'form-control',
@@ -206,7 +206,17 @@ class UserProfileForm(forms.ModelForm):
                 'class': 'form-control', 'type': 'date',
             }),
             'training_level': forms.Select(attrs={'class': 'form-select'}),
+            'dumbbell_weight_mode': forms.Select(attrs={'class': 'form-select'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Un invio senza questo campo (form vecchio in cache, client diverso)
+        # lascia la scelta com'è invece di bloccare il salvataggio del profilo.
+        self.fields['dumbbell_weight_mode'].required = False
+
+    def clean_dumbbell_weight_mode(self):
+        return self.cleaned_data.get('dumbbell_weight_mode') or self.instance.dumbbell_weight_mode
 
     def clean_body_weight(self):
         weight = self.cleaned_data.get('body_weight')

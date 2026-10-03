@@ -30,9 +30,50 @@ STANDARD_LABELS = {
     'close_grip_bench_press': 'Panca presa stretta',
     'barbell_curl': 'Curl con bilanciere',
     'sumo_deadlift': 'Stacco sumo',
+    'dumbbell_bench_press': 'Panca piana con manubri',
+    'incline_dumbbell_bench_press': 'Panca inclinata con manubri',
+    'dumbbell_shoulder_press': 'Press con manubri (spalle)',
+    'dumbbell_curl': 'Curl con manubri',
+    'hammer_curl': 'Curl a martello',
+    'dumbbell_lateral_raise': 'Alzate laterali',
+    'dumbbell_fly': 'Croci con manubri',
+    'dumbbell_row': 'Rematore con manubrio',
+    'dumbbell_shrug': 'Scrollate con manubri',
+    'goblet_squat': 'Goblet squat',
 }
 
 STANDARDS = TABLES
+
+# Esercizi che si fanno con DUE manubri, ognuno col suo peso: qui il carico
+# registrato è ambiguo (un manubrio o la somma). Rematore con manubrio e goblet
+# squat non compaiono: si usa un manubrio solo, quindi il peso non è ambiguo.
+PAIRED_DUMBBELL = frozenset({
+    'dumbbell_bench_press', 'incline_dumbbell_bench_press',
+    'dumbbell_shoulder_press', 'dumbbell_curl', 'hammer_curl',
+    'dumbbell_lateral_raise', 'dumbbell_fly', 'dumbbell_shrug',
+})
+
+# Per dedurre la convenzione dell'utente si confronta il suo 1RM coi manubri con
+# quello del bilanciere corrispondente: (esercizio col bilanciere, soglia).
+# Sopra la soglia il peso registrato è la somma dei due manubri.
+#
+# Le soglie stanno a metà tra i rapporti massimi "un manubrio" e minimi
+# "somma dei due" ricavati dalle tabelle (panca 0,47 / 0,67; panca inclinata
+# 0,58 / 0,83; press 0,57 / 0,86). Per curl e curl a martello i due gruppi si
+# sovrappongono quasi (0,60 / 0,71 e 0,80 / 0,91): lì il confronto non è
+# affidabile e non si usa.
+DEDUCTION_PAIRS = {
+    'dumbbell_bench_press': ('bench_press', 0.57),
+    'incline_dumbbell_bench_press': ('incline_bench_press', 0.70),
+    'dumbbell_shoulder_press': ('overhead_press', 0.71),
+}
+
+
+def dumbbell_mode_from_ratio(standard_key, ratio):
+    """'total' se il rapporto manubri/bilanciere supera la soglia, altrimenti 'per_dumbbell'."""
+    _, threshold = DEDUCTION_PAIRS[standard_key]
+    return 'total' if ratio >= threshold else 'per_dumbbell'
+
 
 # Coefficiente di riduzione per età (applicato dopo i 40 anni).
 # Nota: non viene da Strength Level, che non pubblica correzioni per età.

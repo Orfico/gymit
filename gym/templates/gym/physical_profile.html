@@ -27,6 +27,9 @@
                     {% if field.errors %}
                     <div class="text-danger small mt-1">{{ field.errors }}</div>
                     {% endif %}
+                    {% if field.help_text %}
+                    <div class="form-text text-secondary" style="font-size:11px;">{{ field.help_text }}</div>
+                    {% endif %}
                     {% if field.name == 'birth_date' %}
                     <div class="form-text text-secondary" style="font-size:11px;">
                         Oltre i 40 anni i benchmark vengono ridotti in base all'età.

@@ -158,6 +158,12 @@ class TrainingLevel(models.TextChoices):
     ELITE = 'elite', 'Elite'
 
 
+class DumbbellWeightMode(models.TextChoices):
+    AUTO = 'auto', 'Automatico (deduci dai miei log)'
+    PER_DUMBBELL = 'per_dumbbell', 'Peso di un singolo manubrio'
+    TOTAL = 'total', 'Somma dei due manubri'
+
+
 class UserProfile(models.Model):
     """
     Dati fisici dell'utente, usati per confrontare i suoi massimali con gli
@@ -187,6 +193,19 @@ class UserProfile(models.Model):
         choices=TrainingLevel.choices,
         default=TrainingLevel.BEGINNER,
         verbose_name='Livello di allenamento'
+    )
+
+    dumbbell_weight_mode = models.CharField(
+        max_length=12,
+        choices=DumbbellWeightMode.choices,
+        default=DumbbellWeightMode.AUTO,
+        verbose_name='Peso dei manubri nei log',
+        help_text=(
+            "Negli esercizi con due manubri (panca, curl, alzate...) il carico che "
+            "registri è quello di un manubrio o la somma dei due? Con "
+            "\"Automatico\" lo deduciamo confrontando i tuoi log coi manubri e col "
+            "bilanciere."
+        ),
     )
 
     class Meta:

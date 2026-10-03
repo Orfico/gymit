@@ -639,8 +639,11 @@ class MoreStandardKeysMigrationTest(TestCase):
         self.assertTrue(set(self.migration.MAPPING) <= set(ss.STANDARDS))
 
     def test_all_standards_are_reachable_by_migrations(self):
+        import importlib
+        dumbbells = importlib.import_module('gym.migrations.0016_populate_dumbbell_standard_keys')
         self.assertEqual(
-            set(self.first.MAPPING) | set(self.migration.MAPPING), set(ss.STANDARDS)
+            set(self.first.MAPPING) | set(self.migration.MAPPING) | set(dumbbells.MAPPING),
+            set(ss.STANDARDS),
         )
 
     def test_names_do_not_collide_between_migrations(self):
@@ -661,3 +664,220 @@ class MoreStandardKeysMigrationTest(TestCase):
         self.assertEqual(Exercise.objects.get(name='Hip Thrust').standard_key, 'hip_thrust')
         self.assertEqual(Exercise.objects.get(name='Squat Frontale').standard_key, 'squat')
         self.assertIsNone(Exercise.objects.get(name='Leg Press').standard_key)
+
+
+class DumbbellTablesTest(TestCase):
+    """Le soglie di deduzione devono reggere sui dati, non solo a parole."""
+
+    def test_deduction_thresholds_separate_the_two_conventions(self):
+        for dumbbell_key, (barbell_key, threshold) in ss.DEDUCTION_PAIRS.items():
+            ratios = []
+            for sex in ('M', 'F'):
+                for d_row, b_row in zip(ss.STANDARDS[dumbbell_key][sex], ss.STANDARDS[barbell_key][sex]):
+                    self.assertEqual(d_row[0], b_row[0])
+                    ratios += [d / b for d, b in zip(d_row[1:], b_row[1:])]
+            self.assertLess(max(ratios), threshold, f'{dumbbell_key}: un manubrio')
+            self.assertGreater(2 * min(ratios), threshold, f'{dumbbell_key}: somma')
+
+    def test_deduction_pairs_point_to_existing_standards(self):
+        for dumbbell_key, (barbell_key, _) in ss.DEDUCTION_PAIRS.items():
+            self.assertIn(dumbbell_key, ss.PAIRED_DUMBBELL)
+            self.assertIn(barbell_key, ss.STANDARDS)
+
+    def test_paired_exercises_have_tables(self):
+        self.assertTrue(ss.PAIRED_DUMBBELL <= set(ss.STANDARDS))
+
+    def test_single_dumbbell_exercises_are_not_paired(self):
+        self.assertNotIn('dumbbell_row', ss.PAIRED_DUMBBELL)
+        self.assertNotIn('goblet_squat', ss.PAIRED_DUMBBELL)
+
+    def test_mode_from_ratio(self):
+        self.assertEqual(ss.dumbbell_mode_from_ratio('dumbbell_bench_press', 0.40), 'per_dumbbell')
+        self.assertEqual(ss.dumbbell_mode_from_ratio('dumbbell_bench_press', 0.80), 'total')
+
+    def test_known_values(self):
+        # uomo 80 kg: panca con manubri, un manubrio
+        self.assertEqual(ss.compute_benchmark('dumbbell_bench_press', 80, 'M', 'intermediate'), 40.0)
+        self.assertEqual(ss.compute_benchmark('goblet_squat', 60, 'F', 'advanced'), 37.0)
+
+
+class DumbbellBenchmarkViewTest(TestCase):
+    def setUp(self):
+        self.user = make_user()
+        self.client.force_login(self.user)
+        fill_profile(self.user)  # uomo 80 kg intermedio
+        self.db_bench = Exercise.objects.create(
+            name='Panca Manubri', muscle_group=MuscleGroup.CHEST,
+            standard_key='dumbbell_bench_press',
+        )
+        self.bench = Exercise.objects.create(
+            name='Panca Piana', muscle_group=MuscleGroup.CHEST, standard_key='bench_press',
+        )
+        self.curl = Exercise.objects.create(
+            name='Curl Manubri', muscle_group=MuscleGroup.BICEPS, standard_key='dumbbell_curl',
+        )
+        self.barbell_curl = Exercise.objects.create(
+            name='Curl Bilanciere', muscle_group=MuscleGroup.BICEPS, standard_key='barbell_curl',
+        )
+
+    def log(self, exercise, weight, reps=1):
+        return ExerciseLog.objects.create(
+            user=self.user, exercise=exercise, date=date.today(),
+            sets=1, reps=reps, weight=weight,
+        )
+
+    def data(self, exercise):
+        response = self.client.get(reverse('exercise_progress', args=[exercise.pk]))
+        self.assertEqual(response.status_code, 200)
+        return response.context['benchmark_data'], response
+
+    def set_mode(self, mode):
+        profile = self.user.userprofile
+        profile.dumbbell_weight_mode = mode
+        profile.save()
+
+    def test_default_mode_is_auto(self):
+        self.assertEqual(make_user('new').userprofile.dumbbell_weight_mode, 'auto')
+
+    def test_no_logs_assumes_single_dumbbell(self):
+        data, response = self.data(self.db_bench)
+        self.assertEqual(data['benchmark_1rm'], 40.0)
+        self.assertEqual(data['dumbbell'], {'mode': 'per_dumbbell', 'source': 'default'})
+        self.assertContains(response, 'per manubrio')
+        self.assertContains(response, 'ipotesi di partenza')
+
+    def test_single_dumbbell_log_compared_directly(self):
+        self.log(self.db_bench, 40)
+        data, _ = self.data(self.db_bench)
+        self.assertEqual(data['percentage'], 100)
+
+    def test_setting_total_halves_the_logged_weight(self):
+        self.set_mode('total')
+        self.log(self.db_bench, 80)
+        data, response = self.data(self.db_bench)
+        self.assertEqual(data['dumbbell'], {
+            'mode': 'total', 'source': 'setting', 'per_dumbbell_one_rm': 40.0,
+        })
+        self.assertEqual(data['percentage'], 100)
+        self.assertContains(response, 'somma dei due manubri')
+
+    def test_setting_per_dumbbell_overrides_deduction(self):
+        self.log(self.bench, 100)
+        self.log(self.db_bench, 80)  # il rapporto direbbe "somma"
+        self.set_mode('per_dumbbell')
+        data, _ = self.data(self.db_bench)
+        self.assertEqual(data['dumbbell']['mode'], 'per_dumbbell')
+        self.assertEqual(data['dumbbell']['source'], 'setting')
+        self.assertEqual(data['percentage'], 200)
+
+    def test_auto_deduces_single_dumbbell_from_barbell_ratio(self):
+        self.log(self.bench, 100)
+        self.log(self.db_bench, 40)  # 0,40
+        data, response = self.data(self.db_bench)
+        self.assertEqual(data['dumbbell'], {'mode': 'per_dumbbell', 'source': 'deduced'})
+        self.assertContains(response, 'Lo abbiamo dedotto')
+
+    def test_auto_deduces_total_from_barbell_ratio(self):
+        self.log(self.bench, 100)
+        self.log(self.db_bench, 80)  # 0,80
+        data, _ = self.data(self.db_bench)
+        self.assertEqual(data['dumbbell']['mode'], 'total')
+        self.assertEqual(data['dumbbell']['source'], 'deduced')
+        self.assertEqual(data['percentage'], 100)
+
+    def test_deduction_ignores_other_users(self):
+        other = make_user('other')
+        ExerciseLog.objects.create(
+            user=other, exercise=self.bench, date=date.today(), sets=1, reps=1, weight=100,
+        )
+        ExerciseLog.objects.create(
+            user=other, exercise=self.db_bench, date=date.today(), sets=1, reps=1, weight=80,
+        )
+        data, _ = self.data(self.db_bench)
+        self.assertEqual(data['dumbbell']['source'], 'default')
+
+    def test_convention_carries_over_to_exercises_without_reliable_pair(self):
+        self.log(self.bench, 100)
+        self.log(self.db_bench, 80)  # chi registra la somma lo fa ovunque
+        self.log(self.curl, 40)
+        data, _ = self.data(self.curl)
+        self.assertEqual(data['dumbbell'], {
+            'mode': 'total', 'source': 'deduced', 'per_dumbbell_one_rm': 20.0,
+        })
+
+    def test_curl_own_ratio_is_not_used(self):
+        """Curl e curl col bilanciere hanno fasce sovrapposte: niente deduzione."""
+        self.log(self.barbell_curl, 40)
+        self.log(self.curl, 36)  # 0,90: sembrerebbe "somma"
+        data, _ = self.data(self.curl)
+        self.assertEqual(data['dumbbell'], {'mode': 'per_dumbbell', 'source': 'default'})
+
+    def test_single_dumbbell_exercises_have_no_ambiguity_note(self):
+        row = Exercise.objects.create(
+            name='Rematore Manubrio', muscle_group=MuscleGroup.BACK, standard_key='dumbbell_row',
+        )
+        self.set_mode('total')
+        self.log(row, 43)
+        data, response = self.data(row)
+        self.assertIsNone(data['dumbbell'])
+        self.assertEqual(data['percentage'], 100)  # 43 kg = intermedio, non dimezzato
+        self.assertNotContains(response, 'somma dei due manubri')
+
+    def test_barbell_exercises_unaffected_by_dumbbell_setting(self):
+        self.set_mode('total')
+        self.log(self.bench, 98)
+        data, _ = self.data(self.bench)
+        self.assertIsNone(data['dumbbell'])
+        self.assertEqual(data['percentage'], 100)
+
+    def test_profile_form_saves_mode(self):
+        self.client.post(reverse('physical_profile'), {
+            'body_weight': '80', 'sex': 'M', 'training_level': 'intermediate',
+            'dumbbell_weight_mode': 'total',
+        })
+        self.assertEqual(self.user.userprofile.__class__.objects.get(user=self.user).dumbbell_weight_mode, 'total')
+
+    def test_profile_form_rejects_unknown_mode(self):
+        response = self.client.post(reverse('physical_profile'), {
+            'training_level': 'beginner', 'dumbbell_weight_mode': 'boh',
+        })
+        self.assertEqual(response.status_code, 200)
+
+    def test_profile_page_explains_the_option(self):
+        response = self.client.get(reverse('physical_profile'))
+        self.assertContains(response, 'Peso dei manubri nei log')
+        self.assertContains(response, 'Somma dei due manubri')
+
+
+class DumbbellKeysMigrationTest(TestCase):
+    def setUp(self):
+        import importlib
+        self.migration = importlib.import_module(
+            'gym.migrations.0016_populate_dumbbell_standard_keys'
+        )
+
+    def test_every_mapped_key_exists_in_standards(self):
+        self.assertTrue(set(self.migration.MAPPING) <= set(ss.STANDARDS))
+
+    def test_names_do_not_collide_with_earlier_migrations(self):
+        import importlib
+        earlier = set()
+        for module in ('0011_populate_standard_keys', '0013_populate_more_standard_keys'):
+            mod = importlib.import_module(f'gym.migrations.{module}')
+            earlier |= {n for ns in mod.MAPPING.values() for n in ns}
+        mine = {n for ns in self.migration.MAPPING.values() for n in ns}
+        self.assertFalse(earlier & mine)
+
+    def test_populates_only_empty_keys_and_skips_ambiguous_names(self):
+        from django.apps import apps
+        Exercise.objects.create(name='Curl Manubri', muscle_group=MuscleGroup.BICEPS)
+        Exercise.objects.create(
+            name='Alzate Laterali', muscle_group=MuscleGroup.SHOULDERS, standard_key='squat'
+        )
+        Exercise.objects.create(name='Shoulder Press', muscle_group=MuscleGroup.SHOULDERS)
+
+        self.migration.populate_standard_keys(apps, None)
+
+        self.assertEqual(Exercise.objects.get(name='Curl Manubri').standard_key, 'dumbbell_curl')
+        self.assertEqual(Exercise.objects.get(name='Alzate Laterali').standard_key, 'squat')
+        self.assertIsNone(Exercise.objects.get(name='Shoulder Press').standard_key)

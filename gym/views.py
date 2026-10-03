@@ -31,7 +31,10 @@ from .models import (
     MuscleGroup, PlanFolder, WorkoutSession, UserPreferences, UserProfile,
     TrainingLevel, shows_video_admin,
 )
-from .strength_standards import compute_benchmark, highest_level_reached
+from .strength_standards import (
+    compute_benchmark, highest_level_reached, PAIRED_DUMBBELL, DEDUCTION_PAIRS,
+    dumbbell_mode_from_ratio,
+)
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -453,6 +456,54 @@ def log_delete(request, pk):
 
 # ─── Progress ─────────────────────────────────────────────────────────────────
 
+def _resolve_dumbbell_mode(user, profile, standard_key):
+    """
+    Se il carico registrato negli esercizi a due manubri è quello di un
+    manubrio o la somma dei due. Restituisce (modalità, origine).
+
+    Origine: 'setting' (scelta esplicita nel profilo), 'deduced' (dai log) o
+    'default' (nessun dato: si assume un manubrio, la convenzione di palestra
+    e quella delle tabelle).
+
+    Deduzione: il rapporto tra il miglior 1RM coi manubri e quello del
+    bilanciere corrispondente cade in due fasce ben separate a seconda della
+    convenzione. Vale solo per gli esercizi con fasce nette (DEDUCTION_PAIRS);
+    per gli altri si segue ciò che emerge dagli esercizi affidabili, a
+    maggioranza, perché chi registra la somma lo fa di solito ovunque.
+    """
+    if profile.dumbbell_weight_mode != 'auto':
+        return profile.dumbbell_weight_mode, 'setting'
+
+    pair_keys = set(DEDUCTION_PAIRS) | {barbell for barbell, _ in DEDUCTION_PAIRS.values()}
+    best_by_key = {
+        row['exercise__standard_key']: float(row['best'])
+        for row in (
+            ExerciseLog.objects
+            .filter(user=user, exercise__standard_key__in=pair_keys, one_rm__isnull=False)
+            .order_by()
+            .values('exercise__standard_key')
+            .annotate(best=Max('one_rm'))
+        )
+    }
+
+    verdicts = {}
+    for dumbbell_key, (barbell_key, _) in DEDUCTION_PAIRS.items():
+        dumbbell_best = best_by_key.get(dumbbell_key)
+        barbell_best = best_by_key.get(barbell_key)
+        if dumbbell_best and barbell_best:
+            verdicts[dumbbell_key] = dumbbell_mode_from_ratio(
+                dumbbell_key, dumbbell_best / barbell_best
+            )
+
+    if standard_key in verdicts:
+        return verdicts[standard_key], 'deduced'
+    if verdicts and standard_key not in DEDUCTION_PAIRS:
+        totals = sum(1 for mode in verdicts.values() if mode == 'total')
+        mode = 'total' if totals * 2 > len(verdicts) else 'per_dumbbell'
+        return mode, 'deduced'
+    return 'per_dumbbell', 'default'
+
+
 def _benchmark_context(user, exercise, best_one_rm):
     """
     Confronto tra il miglior 1RM dell'utente e lo strength standard.
@@ -491,11 +542,23 @@ def _benchmark_context(user, exercise, best_one_rm):
         'current_level': None,
         'current_level_display': None,
         'profile_complete': True,
+        'dumbbell': None,
     }
+
+    # Le tabelle dei manubri sono per singolo manubrio: se l'utente registra la
+    # somma dei due si dimezza il suo 1RM prima del confronto.
+    if exercise.standard_key in PAIRED_DUMBBELL:
+        mode, source = _resolve_dumbbell_mode(user, profile, exercise.standard_key)
+        data['dumbbell'] = {'mode': mode, 'source': source}
+    else:
+        mode = None
 
     # best_one_rm è un Decimal (Max su DecimalField), benchmark_1rm un float.
     if best_one_rm:
         actual_1rm = float(best_one_rm)
+        if mode == 'total':
+            actual_1rm = round(actual_1rm / 2, 1)
+            data['dumbbell']['per_dumbbell_one_rm'] = actual_1rm
         percentage = round(actual_1rm / benchmark_1rm * 100)
         data['percentage'] = percentage
         data['bar_width'] = min(percentage, 100)
