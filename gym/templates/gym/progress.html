@@ -133,6 +133,55 @@
     </div>
     {% endif %}
 
+    <!-- Benchmark di forza — solo per gli esercizi con standard consolidati.
+         Confronto a runtime col miglior 1RM sopra: non salvato da nessuna parte. -->
+    {% if has_standard %}
+    <div class="card bg-black border-secondary mb-4">
+        <div class="card-body">
+            <h6 class="text-secondary text-uppercase fw-bold small mb-3">
+                <i class="bi bi-trophy me-1"></i>Benchmark di forza
+            </h6>
+
+            {% if profile_incomplete %}
+            <p class="small text-secondary mb-0">
+                Completa il tuo <a href="{% url 'physical_profile' %}" class="text-warning">profilo fisico</a>
+                (peso e sesso) per vedere il benchmark di questo esercizio.
+            </p>
+            {% elif benchmark_data %}
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-secondary">
+                    Target ({{ benchmark_data.training_level_display }})
+                </span>
+                <strong>{{ benchmark_data.benchmark_1rm|floatformat:1 }} kg</strong>
+            </div>
+
+            {% if benchmark_data.percentage is not None %}
+            <div class="progress mb-2" style="height: 20px;"
+                 role="progressbar" aria-label="1RM rispetto al benchmark"
+                 aria-valuenow="{{ benchmark_data.percentage }}" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar {{ benchmark_data.bar_class }} {% if benchmark_data.bar_class == 'bg-warning' or benchmark_data.bar_class == 'bg-info' %}text-dark{% endif %} fw-semibold"
+                     style="width: {{ benchmark_data.bar_width }}%">
+                    {{ benchmark_data.percentage }}%
+                </div>
+            </div>
+            <div class="small text-secondary">
+                {% if benchmark_data.current_level_display %}
+                Il tuo livello su questo esercizio:
+                <span class="badge bg-warning text-dark">{{ benchmark_data.current_level_display }}</span>
+                {% else %}
+                Sotto il livello Principiante per il tuo peso corporeo.
+                {% endif %}
+            </div>
+            {% else %}
+            <p class="small text-secondary mb-0">
+                Registra un allenamento con questo esercizio per confrontare il tuo 1RM col benchmark.
+            </p>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Selettore temporale -->
     <div class="d-flex gap-2 mb-3">
         {% for value, label in periods %}

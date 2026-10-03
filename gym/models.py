@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
@@ -52,6 +54,20 @@ class Exercise(models.Model):
     )
     video_added_at = models.DateTimeField(
         null=True, blank=True, verbose_name='Video aggiunto il'
+    )
+
+    # Collega l'esercizio a una riga di strength_standards.STANDARDS. Resta
+    # vuoto per tutto ciò che non ha standard consolidati (isolamenti,
+    # macchine, varianti): lì il benchmark semplicemente non compare.
+    standard_key = models.CharField(
+        max_length=30,
+        null=True,
+        blank=True,
+        verbose_name='Chiave standard di forza',
+        help_text=(
+            'Chiave nel dizionario STANDARDS per il benchmark (es. bench_press). '
+            'Lascia vuoto per esercizi senza benchmark.'
+        ),
     )
 
     class Meta:
@@ -132,6 +148,67 @@ def shows_video_admin(user):
         return False
     preferences = UserPreferences.objects.filter(user=user).first()
     return preferences.show_video_admin if preferences else True
+
+
+class TrainingLevel(models.TextChoices):
+    BEGINNER = 'beginner', 'Principiante'
+    NOVICE = 'novice', 'Novizio'
+    INTERMEDIATE = 'intermediate', 'Intermedio'
+    ADVANCED = 'advanced', 'Avanzato'
+    ELITE = 'elite', 'Elite'
+
+
+class UserProfile(models.Model):
+    """
+    Dati fisici dell'utente, usati per confrontare i suoi massimali con gli
+    strength standard.
+
+    Distinto da UserPreferences, che raccoglie impostazioni di visualizzazione:
+    qui ci sono dati personali. Tutti i campi sono facoltativi — senza di essi
+    l'app funziona uguale, semplicemente non mostra i benchmark.
+    """
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    body_weight = models.DecimalField(
+        max_digits=5, decimal_places=1, null=True, blank=True,
+        verbose_name='Peso corporeo (kg)'
+    )
+    sex = models.CharField(
+        max_length=1,
+        choices=[('M', 'Uomo'), ('F', 'Donna')],
+        null=True, blank=True,
+        verbose_name='Sesso'
+    )
+    birth_date = models.DateField(
+        null=True, blank=True,
+        verbose_name='Data di nascita'
+    )
+    training_level = models.CharField(
+        max_length=15,
+        choices=TrainingLevel.choices,
+        default=TrainingLevel.BEGINNER,
+        verbose_name='Livello di allenamento'
+    )
+
+    class Meta:
+        verbose_name = 'Profilo fisico'
+        verbose_name_plural = 'Profili fisici'
+
+    def __str__(self):
+        return f"Profilo di {self.user.username}"
+
+    @property
+    def age(self):
+        if not self.birth_date:
+            return None
+        today = date.today()
+        return today.year - self.birth_date.year - (
+            (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
+        )
+
+    @property
+    def has_benchmark_data(self):
+        """Servono almeno peso e sesso: l'età e il livello hanno un default."""
+        return bool(self.body_weight and self.sex)
 
 
 class PlanFolder(models.Model):

@@ -1,0 +1,45 @@
+{% extends 'gym/base.html' %}
+{% block title %}Profilo fisico — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+    <div class="d-flex align-items-center mb-4 gap-3">
+        <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <h5 class="mb-0 fw-bold">Profilo fisico</h5>
+    </div>
+
+    <div class="small text-secondary mb-3">
+        Servono per confrontare il tuo 1RM con i benchmark di forza negli
+        esercizi principali. Sono facoltativi: senza questi dati l'app funziona
+        come sempre, ma i benchmark non compaiono.
+    </div>
+
+    <div class="card bg-black border-secondary">
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                {% for field in form %}
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.errors %}
+                    <div class="text-danger small mt-1">{{ field.errors }}</div>
+                    {% endif %}
+                    {% if field.name == 'birth_date' %}
+                    <div class="form-text text-secondary" style="font-size:11px;">
+                        Oltre i 40 anni i benchmark vengono ridotti in base all'età.
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                <button type="submit" class="btn btn-warning w-100 fw-bold py-3 mt-2"
+                        data-loading-text="Salvataggio...">
+                    Salva profilo
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

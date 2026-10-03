@@ -1,9 +1,12 @@
 import logging
+from datetime import date
 
 from django import forms
 
 from . import youtube
-from .models import WorkoutPlan, PlannedExercise, ExerciseLog, Exercise, PlanFolder
+from .models import (
+    WorkoutPlan, PlannedExercise, ExerciseLog, Exercise, PlanFolder, UserProfile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +161,42 @@ class ExerciseForm(forms.ModelForm):
             'is_bodyweight': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
 
+
+
+class UserProfileForm(forms.ModelForm):
+    """Dati fisici per i benchmark. Tutti facoltativi: si può salvare vuoto."""
+    class Meta:
+        model = UserProfile
+        fields = ['body_weight', 'sex', 'birth_date', 'training_level']
+        widgets = {
+            'body_weight': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'min': 20, 'max': 400, 'step': '0.1',
+                'inputmode': 'decimal', 'placeholder': 'es. 80',
+            }),
+            'sex': forms.Select(attrs={'class': 'form-select'}),
+            'birth_date': forms.DateInput(format='%Y-%m-%d', attrs={
+                'class': 'form-control', 'type': 'date',
+            }),
+            'training_level': forms.Select(attrs={'class': 'form-select'}),
+        }
+
+    def clean_body_weight(self):
+        weight = self.cleaned_data.get('body_weight')
+        if weight is not None and not (20 <= weight <= 400):
+            raise forms.ValidationError('Inserisci un peso tra 20 e 400 kg.')
+        return weight
+
+    def clean_birth_date(self):
+        birth_date = self.cleaned_data.get('birth_date')
+        if birth_date is None:
+            return birth_date
+        today = date.today()
+        if birth_date > today:
+            raise forms.ValidationError('La data di nascita non può essere nel futuro.')
+        if today.year - birth_date.year > 120:
+            raise forms.ValidationError('Data di nascita non plausibile.')
+        return birth_date
 
 
 class ExerciseVideoForm(forms.Form):

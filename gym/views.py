@@ -23,13 +23,15 @@ from .forms import (
     PlanFolderForm,
     ExerciseVideoForm,
     PlannedExerciseEditForm,
+    UserProfileForm,
 )
 
 from .models import (
     Exercise, WorkoutPlan, PlannedExercise, ExerciseLog,
-    MuscleGroup, PlanFolder, WorkoutSession, UserPreferences,
-    shows_video_admin,
+    MuscleGroup, PlanFolder, WorkoutSession, UserPreferences, UserProfile,
+    TrainingLevel, shows_video_admin,
 )
+from .strength_standards import compute_benchmark, highest_level_reached
 
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -451,6 +453,71 @@ def log_delete(request, pk):
 
 # ─── Progress ─────────────────────────────────────────────────────────────────
 
+def _benchmark_context(user, exercise, best_one_rm):
+    """
+    Confronto tra il miglior 1RM dell'utente e lo strength standard.
+
+    Calcolo a runtime: non tocca ExerciseLog, quindi cambiare peso o livello
+    nel profilo ricalcola subito anche lo storico.
+    """
+    has_standard = bool(exercise.standard_key)
+    # getattr con default: chi esisteva prima del profilo non ha la riga.
+    profile = getattr(user, 'userprofile', None)
+    has_data = bool(profile and profile.has_benchmark_data)
+
+    context = {
+        'has_standard': has_standard,
+        'profile_incomplete': has_standard and not has_data,
+        'benchmark_data': None,
+    }
+    if not (has_standard and has_data):
+        return context
+
+    benchmark_1rm = compute_benchmark(
+        exercise.standard_key, profile.body_weight, profile.sex,
+        profile.training_level, profile.age,
+    )
+    if benchmark_1rm is None:
+        # Chiave sconosciuta nel dizionario: meglio nessun riquadro che uno vuoto.
+        context['has_standard'] = False
+        return context
+
+    data = {
+        'benchmark_1rm': benchmark_1rm,
+        'percentage': None,
+        'bar_width': 0,
+        'bar_class': 'bg-secondary',
+        'training_level_display': profile.get_training_level_display(),
+        'current_level': None,
+        'current_level_display': None,
+        'profile_complete': True,
+    }
+
+    # best_one_rm è un Decimal (Max su DecimalField), benchmark_1rm un float.
+    if best_one_rm:
+        actual_1rm = float(best_one_rm)
+        percentage = round(actual_1rm / benchmark_1rm * 100)
+        data['percentage'] = percentage
+        data['bar_width'] = min(percentage, 100)
+        if percentage >= 100:
+            data['bar_class'] = 'bg-success'
+        elif percentage >= 80:
+            data['bar_class'] = 'bg-info'
+        elif percentage >= 60:
+            data['bar_class'] = 'bg-warning'
+
+        level = highest_level_reached(
+            exercise.standard_key, profile.body_weight, profile.sex,
+            actual_1rm, profile.age,
+        )
+        if level:
+            data['current_level'] = level
+            data['current_level_display'] = TrainingLevel(level).label
+
+    context['benchmark_data'] = data
+    return context
+
+
 @login_required
 def exercise_progress(request, exercise_id):
     """
@@ -503,6 +570,7 @@ def exercise_progress(request, exercise_id):
         'all': 'Tutto',
     }
     return render(request, 'gym/progress.html', {
+        **_benchmark_context(request.user, exercise, best),
         # Solo agli admin, e solo se hanno scelto di vederli: è una
         # preferenza di visualizzazione, il permesso resta verificato lato
         # server nelle viste che scrivono.
@@ -1386,3 +1454,22 @@ def toggle_video_admin(request):
     ):
         destination = reverse('dashboard')
     return redirect(destination)
+
+
+# ─── Profilo fisico ───────────────────────────────────────────────────────────
+
+@login_required
+def physical_profile(request):
+    """
+    Peso, sesso, età e livello usati per i benchmark di forza.
+
+    get_or_create perché gli utenti registrati prima dell'introduzione del
+    profilo non hanno la riga: il signal copre solo i nuovi account.
+    """
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    form = UserProfileForm(request.POST or None, instance=profile)
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        messages.success(request, 'Profilo fisico aggiornato.')
+        return redirect('physical_profile')
+    return render(request, 'gym/physical_profile.html', {'form': form})

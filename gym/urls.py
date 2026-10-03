@@ -47,6 +47,7 @@ urlpatterns = [
 
     # Preferenze utente
     path('preferences/video-admin/', views.toggle_video_admin, name='toggle_video_admin'),
+    path('profile/physical/', views.physical_profile, name='physical_profile'),
 
     # Modifica log allenamento
     path('log/<int:pk>/edit/', views.log_edit, name='log_edit'),

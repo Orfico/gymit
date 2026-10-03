@@ -1,12 +1,18 @@
 from django.contrib import admin
-from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog
+from .models import Exercise, WorkoutPlan, PlannedExercise, ExerciseLog, UserProfile
 
 
 @admin.register(Exercise)
 class ExerciseAdmin(admin.ModelAdmin):
-    list_display = ('name', 'muscle_group', 'created_by')
+    list_display = ('name', 'muscle_group', 'standard_key', 'created_by')
     list_filter = ('muscle_group',)
     search_fields = ('name',)
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'body_weight', 'sex', 'birth_date', 'training_level')
+    search_fields = ('user__username',)
 
 
 @admin.register(WorkoutPlan)
