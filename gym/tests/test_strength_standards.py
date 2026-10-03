@@ -57,20 +57,54 @@ class AgeFactorTest(TestCase):
 
 class ComputeBenchmarkTest(TestCase):
     def test_known_value_man_80kg_intermediate_bench(self):
-        self.assertEqual(ss.compute_benchmark('bench_press', 80, 'M', 'intermediate'), 100.0)
+        # Riga della tabella Strength Level: uomo, 80 kg, panca -> 98 kg
+        self.assertEqual(ss.compute_benchmark('bench_press', 80, 'M', 'intermediate'), 98.0)
+
+    def test_every_level_matches_table_row(self):
+        expected = {'beginner': 56, 'novice': 75, 'intermediate': 98, 'advanced': 124, 'elite': 151}
+        for level, kg in expected.items():
+            self.assertEqual(ss.compute_benchmark('bench_press', 80, 'M', level), kg)
 
     def test_accepts_decimal_body_weight(self):
         self.assertEqual(
-            ss.compute_benchmark('bench_press', Decimal('80.0'), 'M', 'intermediate'), 100.0
+            ss.compute_benchmark('bench_press', Decimal('80.0'), 'M', 'intermediate'), 98.0
         )
 
     def test_woman_uses_her_own_table(self):
-        self.assertEqual(ss.compute_benchmark('squat', 60, 'F', 'advanced'), 90.0)
+        self.assertEqual(ss.compute_benchmark('squat', 60, 'F', 'advanced'), 99.0)
+
+    def test_interpolates_between_rows(self):
+        # 80 kg -> 98, 85 kg -> 104: a meta strada 101
+        self.assertEqual(ss.compute_benchmark('bench_press', 82.5, 'M', 'intermediate'), 101.0)
+        # a 81 kg un quinto del percorso (+1,2)
+        self.assertEqual(ss.compute_benchmark('bench_press', 81, 'M', 'intermediate'), 99.2)
+
+    def test_ratio_is_not_constant_across_body_weights(self):
+        """Il motivo delle tabelle: un moltiplicatore unico sbaglierebbe."""
+        light = ss.compute_benchmark('bench_press', 60, 'M', 'beginner') / 60
+        heavy = ss.compute_benchmark('bench_press', 100, 'M', 'beginner') / 100
+        self.assertNotAlmostEqual(light, heavy, places=2)
+
+    def test_outside_table_range_uses_nearest_row(self):
+        self.assertEqual(ss.compute_benchmark('bench_press', 45, 'M', 'beginner'), 27.0)
+        self.assertEqual(ss.compute_benchmark('bench_press', 200, 'M', 'elite'), 225.0)
+        self.assertEqual(ss.compute_benchmark('bench_press', 30, 'F', 'beginner'), 10.0)
+        self.assertEqual(ss.compute_benchmark('bench_press', 150, 'F', 'elite'), 128.0)
+
+    def test_heavier_lifter_never_gets_lower_target(self):
+        for key in ss.STANDARDS:
+            for sex in ('M', 'F'):
+                for level in ss.LEVELS:
+                    values = [
+                        ss.compute_benchmark(key, bw, sex, level)
+                        for bw in range(30, 200, 3)
+                    ]
+                    self.assertEqual(values, sorted(values), f'{key}/{sex}/{level}')
 
     def test_age_adjustment_applied(self):
-        # 100 kg × 0.87 (51–55 anni)
+        # 98 kg x 0.87 (51-55 anni)
         self.assertEqual(
-            ss.compute_benchmark('bench_press', 80, 'M', 'intermediate', age=53), 87.0
+            ss.compute_benchmark('bench_press', 80, 'M', 'intermediate', age=53), 85.3
         )
 
     def test_under_40_same_as_no_age(self):
@@ -91,40 +125,77 @@ class ComputeBenchmarkTest(TestCase):
         self.assertIsNone(ss.compute_benchmark('bench_press', 80, 'X', 'intermediate'))
         self.assertIsNone(ss.compute_benchmark('bench_press', 80, 'M', 'godlike'))
 
-    def test_every_standard_covers_both_sexes_and_all_levels(self):
-        for key, by_sex in ss.STANDARDS.items():
-            for sex in ('M', 'F'):
-                self.assertEqual(set(by_sex[sex]), set(ss.LEVELS), f'{key}/{sex}')
 
-    def test_levels_increase_for_every_standard(self):
+class StandardTablesTest(TestCase):
+    """Integrita dei dati: un errore di trascrizione si vedrebbe qui."""
+
+    def test_every_standard_has_a_label_and_vice_versa(self):
+        self.assertEqual(set(ss.STANDARDS), set(ss.STANDARD_LABELS))
+
+    def test_tables_cover_both_sexes_with_regular_grid(self):
+        grids = {'M': list(range(50, 145, 5)), 'F': list(range(40, 125, 5))}
         for key, by_sex in ss.STANDARDS.items():
-            for sex, levels in by_sex.items():
-                values = [levels[level] for level in ss.LEVELS]
-                self.assertEqual(values, sorted(values), f'{key}/{sex}')
+            for sex, grid in grids.items():
+                self.assertEqual([row[0] for row in by_sex[sex]], grid, f'{key}/{sex}')
+
+    def test_rows_increase_across_levels(self):
+        for key, by_sex in ss.STANDARDS.items():
+            for sex, rows in by_sex.items():
+                for row in rows:
+                    self.assertEqual(len(row), 6, f'{key}/{sex}/{row}')
+                    self.assertEqual(list(row[1:]), sorted(row[1:]), f'{key}/{sex}/{row}')
+
+    def test_columns_increase_with_body_weight(self):
+        for key, by_sex in ss.STANDARDS.items():
+            for sex, rows in by_sex.items():
+                for column in range(1, 6):
+                    values = [row[column] for row in rows]
+                    self.assertEqual(values, sorted(values), f'{key}/{sex}/{column}')
+
+    def test_women_lift_less_than_men_at_same_weight(self):
+        for key, by_sex in ss.STANDARDS.items():
+            men = {row[0]: row for row in by_sex['M']}
+            for woman in by_sex['F']:
+                # Nella fonte, per l'hip thrust, le donne sotto i 60 kg hanno
+                # valori pari o superiori agli uomini: e un dato reale, non
+                # un errore di trascrizione (confermato da due letture).
+                if key == 'hip_thrust' and woman[0] < 60:
+                    continue
+                if woman[0] in men:
+                    self.assertLess(woman[3], men[woman[0]][3], f'{key}/{woman[0]}')
 
 
 class AllBenchmarksTest(TestCase):
-    def test_returns_multipliers_for_sex(self):
-        levels = ss.get_all_benchmarks_for_level('bench_press', 'M')
-        self.assertEqual(levels['intermediate'], 1.25)
+    def test_returns_kg_for_every_level(self):
+        levels = ss.get_all_benchmarks('bench_press', 80, 'M')
+        self.assertEqual(
+            levels,
+            {'beginner': 56.0, 'novice': 75.0, 'intermediate': 98.0,
+             'advanced': 124.0, 'elite': 151.0},
+        )
 
-    def test_unknown_returns_none(self):
-        self.assertIsNone(ss.get_all_benchmarks_for_level('curl', 'M'))
-        self.assertIsNone(ss.get_all_benchmarks_for_level('bench_press', 'X'))
+    def test_age_applied_to_every_level(self):
+        levels = ss.get_all_benchmarks('bench_press', 80, 'M', age=53)
+        self.assertEqual(levels['intermediate'], 85.3)
+
+    def test_unknown_or_missing_returns_none(self):
+        self.assertIsNone(ss.get_all_benchmarks('curl', 80, 'M'))
+        self.assertIsNone(ss.get_all_benchmarks('bench_press', 80, 'X'))
+        self.assertIsNone(ss.get_all_benchmarks('bench_press', None, 'M'))
 
 
 class HighestLevelReachedTest(TestCase):
     def test_picks_highest_level_met(self):
-        # 80 kg uomo, panca: novice 60, intermediate 100, advanced 140
+        # 80 kg uomo, panca: novice 75, intermediate 98, advanced 124
         self.assertEqual(ss.highest_level_reached('bench_press', 80, 'M', 105), 'intermediate')
-        self.assertEqual(ss.highest_level_reached('bench_press', 80, 'M', 100), 'intermediate')
-        self.assertEqual(ss.highest_level_reached('bench_press', 80, 'M', 60), 'novice')
+        self.assertEqual(ss.highest_level_reached('bench_press', 80, 'M', 98), 'intermediate')
+        self.assertEqual(ss.highest_level_reached('bench_press', 80, 'M', 75), 'novice')
 
     def test_below_first_level_is_none(self):
         self.assertIsNone(ss.highest_level_reached('bench_press', 80, 'M', 30))
 
     def test_thresholds_follow_age(self):
-        # A 53 anni il livello intermedio vale 87 kg, non 100.
+        # A 53 anni il livello intermedio vale 85,3 kg, non 98.
         self.assertEqual(
             ss.highest_level_reached('bench_press', 80, 'M', 90, age=53), 'intermediate'
         )
@@ -227,7 +298,7 @@ class LegacyUserTest(TestCase):
             'body_weight': '80', 'sex': 'M', 'training_level': 'intermediate',
         })
         response = self.client.get(reverse('exercise_progress', args=[exercise.pk]))
-        self.assertEqual(response.context['benchmark_data']['benchmark_1rm'], 100.0)
+        self.assertEqual(response.context['benchmark_data']['benchmark_1rm'], 98.0)
 
 
 class UserProfileFormTest(TestCase):
@@ -345,7 +416,7 @@ class ExerciseProgressBenchmarkTest(TestCase):
     def test_benchmark_without_logs(self):
         fill_profile(self.user)
         data = self.get().context['benchmark_data']
-        self.assertEqual(data['benchmark_1rm'], 100.0)
+        self.assertEqual(data['benchmark_1rm'], 98.0)
         self.assertIsNone(data['percentage'])
         self.assertIsNone(data['current_level'])
         self.assertIs(self.get().context['profile_incomplete'], False)
@@ -354,18 +425,18 @@ class ExerciseProgressBenchmarkTest(TestCase):
         fill_profile(self.user)
         self.log(weight=80, reps=1)
         data = self.get().context['benchmark_data']
-        self.assertEqual(data['benchmark_1rm'], 100.0)
-        self.assertEqual(data['percentage'], 80)
-        self.assertEqual(data['bar_width'], 80)
+        self.assertEqual(data['benchmark_1rm'], 98.0)
+        self.assertEqual(data['percentage'], 82)
+        self.assertEqual(data['bar_width'], 82)
         self.assertEqual(data['bar_class'], 'bg-info')
         self.assertEqual(data['training_level_display'], 'Intermedio')
-        # 80 kg ≥ novice (60) ma < intermediate (100)
+        # 80 kg ≥ novice (75) ma < intermediate (98)
         self.assertEqual(data['current_level'], 'novice')
         self.assertEqual(data['current_level_display'], 'Novizio')
 
     def test_uses_best_one_rm_not_latest(self):
         fill_profile(self.user)
-        self.log(weight=100, reps=1)
+        self.log(weight=98, reps=1)
         self.log(weight=60, reps=1)
         self.assertEqual(self.get().context['benchmark_data']['percentage'], 100)
 
@@ -373,7 +444,7 @@ class ExerciseProgressBenchmarkTest(TestCase):
         fill_profile(self.user)
         self.log(weight=150, reps=1)
         data = self.get().context['benchmark_data']
-        self.assertEqual(data['percentage'], 150)
+        self.assertEqual(data['percentage'], 153)
         self.assertEqual(data['bar_width'], 100)
         self.assertEqual(data['bar_class'], 'bg-success')
         self.assertEqual(data['current_level'], 'advanced')
@@ -390,7 +461,7 @@ class ExerciseProgressBenchmarkTest(TestCase):
         fill_profile(self.user, birth_date=date(today.year - 53, 1, 1))
         self.log(weight=90, reps=1)
         data = self.get().context['benchmark_data']
-        self.assertEqual(data['benchmark_1rm'], 87.0)
+        self.assertEqual(data['benchmark_1rm'], 85.3)
         self.assertEqual(data['current_level'], 'intermediate')
 
     def test_other_users_logs_are_ignored(self):
@@ -417,7 +488,7 @@ class ExerciseProgressBenchmarkTest(TestCase):
         response = self.get()
         self.assertContains(response, 'bi-trophy')
         self.assertContains(response, 'Target (Intermedio)')
-        self.assertContains(response, '100,0 kg')
+        self.assertContains(response, '98,0 kg')
 
 
 class StandardKeyMigrationTest(TestCase):
@@ -547,3 +618,39 @@ class ExerciseStandardKeyFormTest(TestCase):
 
     def test_every_standard_has_a_label(self):
         self.assertEqual(set(ss.STANDARD_LABELS), set(ss.STANDARDS))
+
+
+class MoreStandardKeysMigrationTest(TestCase):
+    def setUp(self):
+        import importlib
+        self.migration = importlib.import_module(
+            'gym.migrations.0013_populate_more_standard_keys'
+        )
+        self.first = importlib.import_module('gym.migrations.0011_populate_standard_keys')
+
+    def test_every_mapped_key_exists_in_standards(self):
+        self.assertTrue(set(self.migration.MAPPING) <= set(ss.STANDARDS))
+
+    def test_all_standards_are_reachable_by_migrations(self):
+        self.assertEqual(
+            set(self.first.MAPPING) | set(self.migration.MAPPING), set(ss.STANDARDS)
+        )
+
+    def test_names_do_not_collide_between_migrations(self):
+        names_a = {n for ns in self.first.MAPPING.values() for n in ns}
+        names_b = {n for ns in self.migration.MAPPING.values() for n in ns}
+        self.assertFalse(names_a & names_b)
+
+    def test_populates_only_empty_keys(self):
+        from django.apps import apps
+        Exercise.objects.create(name='Hip Thrust', muscle_group=MuscleGroup.GLUTES)
+        Exercise.objects.create(
+            name='Squat Frontale', muscle_group=MuscleGroup.LEGS, standard_key='squat'
+        )
+        Exercise.objects.create(name='Leg Press', muscle_group=MuscleGroup.LEGS)
+
+        self.migration.populate_standard_keys(apps, None)
+
+        self.assertEqual(Exercise.objects.get(name='Hip Thrust').standard_key, 'hip_thrust')
+        self.assertEqual(Exercise.objects.get(name='Squat Frontale').standard_key, 'squat')
+        self.assertIsNone(Exercise.objects.get(name='Leg Press').standard_key)

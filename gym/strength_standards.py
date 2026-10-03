@@ -1,10 +1,17 @@
 """
-Strength standards: multipli del peso corporeo (1RM / BW) per esercizio,
-sesso e livello di allenamento.
+Strength standards: 1RM atteso per esercizio, sesso, peso corporeo e livello.
 
-Fonte: Strength Level (strengthlevel.com), percentili community.
-Beginner=5°, Novice=20°, Intermediate=50°, Advanced=80°, Elite=95°.
+I dati stanno in strength_tables.py (tabelle di Strength Level per peso
+corporeo, percentili della community: Principiante 5°, Novizio 20°,
+Intermedio 50°, Avanzato 80°, Elite 95°). Qui c'è solo il calcolo.
+
+Il peso corporeo cade quasi sempre tra due righe di tabella: il valore si
+ricava per interpolazione lineare. Fuori dall'intervallo coperto dalle tabelle
+(uomini 50–140 kg, donne 40–120 kg) si usa la riga estrema: estrapolare
+darebbe numeri sempre meno attendibili man mano che ci si allontana dai dati.
 """
+
+from .strength_tables import TABLES
 
 # Dal più basso al più alto: l'ordine serve a stabilire il livello raggiunto.
 LEVELS = ('beginner', 'novice', 'intermediate', 'advanced', 'elite')
@@ -16,33 +23,19 @@ STANDARD_LABELS = {
     'deadlift': 'Stacco da terra',
     'overhead_press': 'Military press / lento avanti',
     'barbell_row': 'Rematore con bilanciere',
+    'incline_bench_press': 'Panca inclinata con bilanciere',
+    'front_squat': 'Squat frontale',
+    'romanian_deadlift': 'Stacco rumeno',
+    'hip_thrust': 'Hip thrust',
+    'close_grip_bench_press': 'Panca presa stretta',
+    'barbell_curl': 'Curl con bilanciere',
+    'sumo_deadlift': 'Stacco sumo',
 }
 
-# Chiave → {sesso → {livello → multiplo BW}}
-STANDARDS = {
-    'bench_press': {
-        'M': {'beginner': 0.50, 'novice': 0.75, 'intermediate': 1.25, 'advanced': 1.75, 'elite': 2.00},
-        'F': {'beginner': 0.25, 'novice': 0.40, 'intermediate': 0.65, 'advanced': 1.00, 'elite': 1.35},
-    },
-    'squat': {
-        'M': {'beginner': 0.75, 'novice': 1.00, 'intermediate': 1.75, 'advanced': 2.25, 'elite': 2.75},
-        'F': {'beginner': 0.50, 'novice': 0.65, 'intermediate': 1.00, 'advanced': 1.50, 'elite': 1.90},
-    },
-    'deadlift': {
-        'M': {'beginner': 1.00, 'novice': 1.25, 'intermediate': 2.00, 'advanced': 2.50, 'elite': 3.00},
-        'F': {'beginner': 0.50, 'novice': 0.75, 'intermediate': 1.25, 'advanced': 1.75, 'elite': 2.25},
-    },
-    'overhead_press': {
-        'M': {'beginner': 0.35, 'novice': 0.55, 'intermediate': 0.80, 'advanced': 1.10, 'elite': 1.40},
-        'F': {'beginner': 0.20, 'novice': 0.30, 'intermediate': 0.50, 'advanced': 0.75, 'elite': 1.00},
-    },
-    'barbell_row': {
-        'M': {'beginner': 0.40, 'novice': 0.55, 'intermediate': 1.00, 'advanced': 1.35, 'elite': 1.65},
-        'F': {'beginner': 0.25, 'novice': 0.35, 'intermediate': 0.60, 'advanced': 0.85, 'elite': 1.10},
-    },
-}
+STANDARDS = TABLES
 
-# Coefficiente di riduzione per età (applicato dopo i 40 anni)
+# Coefficiente di riduzione per età (applicato dopo i 40 anni).
+# Nota: non viene da Strength Level, che non pubblica correzioni per età.
 AGE_FACTORS = [
     (0,  40, 1.00),
     (41, 45, 0.97),
@@ -65,6 +58,19 @@ def get_age_factor(age):
     return 1.0
 
 
+def _interpolate(rows, body_weight, level_index):
+    """Valore della colonna `level_index` al peso dato, tra le righe adiacenti."""
+    if body_weight <= rows[0][0]:
+        return float(rows[0][level_index])
+    if body_weight >= rows[-1][0]:
+        return float(rows[-1][level_index])
+    for lower, upper in zip(rows, rows[1:]):
+        if lower[0] <= body_weight <= upper[0]:
+            span = upper[0] - lower[0]
+            weight_share = (body_weight - lower[0]) / span
+            return lower[level_index] + (upper[level_index] - lower[level_index]) * weight_share
+
+
 def compute_benchmark(standard_key, body_weight, sex, training_level, age=None):
     """
     Calcola il 1RM benchmark atteso in kg.
@@ -81,35 +87,33 @@ def compute_benchmark(standard_key, body_weight, sex, training_level, age=None):
     """
     if not standard_key or not body_weight or not sex:
         return None
-
-    exercise_standards = STANDARDS.get(standard_key)
-    if not exercise_standards:
+    if training_level not in LEVELS:
         return None
 
-    sex_standards = exercise_standards.get(sex)
-    if not sex_standards:
+    rows = STANDARDS.get(standard_key, {}).get(sex)
+    if not rows:
         return None
 
-    multiplier = sex_standards.get(training_level)
-    if multiplier is None:
-        return None
-
-    expected = float(body_weight) * multiplier * get_age_factor(age)
+    level_index = LEVELS.index(training_level) + 1  # la colonna 0 è il peso
+    expected = _interpolate(rows, float(body_weight), level_index) * get_age_factor(age)
     return round(expected, 1)
 
 
-def get_all_benchmarks_for_level(standard_key, sex):
+def get_all_benchmarks(standard_key, body_weight, sex, age=None):
     """
-    Restituisce tutti i benchmark (multipli BW) per un esercizio e sesso.
-    Utile per mostrare all'utente dove si colloca rispetto a tutti i livelli.
+    Restituisce il 1RM atteso in kg per ognuno dei livelli.
+    Utile per mostrare all'utente dove si colloca rispetto a tutti.
 
     Returns:
-        dict {livello: multiplo} oppure None
+        dict {livello: kg} oppure None se i dati sono insufficienti
     """
-    exercise_standards = STANDARDS.get(standard_key)
-    if not exercise_standards:
+    benchmarks = {
+        level: compute_benchmark(standard_key, body_weight, sex, level, age)
+        for level in LEVELS
+    }
+    if any(value is None for value in benchmarks.values()):
         return None
-    return exercise_standards.get(sex)
+    return benchmarks
 
 
 def highest_level_reached(standard_key, body_weight, sex, one_rm, age=None):
