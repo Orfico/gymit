@@ -449,3 +449,101 @@ class StandardKeyMigrationTest(TestCase):
         import importlib
         migration = importlib.import_module('gym.migrations.0011_populate_standard_keys')
         self.assertTrue(set(migration.MAPPING) <= set(ss.STANDARDS))
+
+
+class ExerciseStandardKeyFormTest(TestCase):
+    """Il collegamento esercizio → standard si gestisce dall'app, solo da admin."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user('boss', password='pw', is_staff=True)
+        self.author = make_user('author')
+        self.exercise = Exercise.objects.create(
+            name='Panca Larga', muscle_group=MuscleGroup.CHEST, created_by=self.author
+        )
+
+    def data(self, **extra):
+        values = {'name': 'Panca Larga', 'muscle_group': MuscleGroup.CHEST}
+        values.update(extra)
+        return values
+
+    def test_admin_sees_field_with_italian_labels(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse('exercise_edit', args=[self.exercise.pk]))
+        self.assertContains(response, 'Standard di forza')
+        self.assertContains(response, 'Panca piana')
+        self.assertContains(response, 'Nessuno')
+
+    def test_regular_user_does_not_see_field(self):
+        self.client.force_login(self.author)
+        response = self.client.get(reverse('exercise_edit', args=[self.exercise.pk]))
+        self.assertNotContains(response, 'Standard di forza')
+
+    def test_admin_links_exercise(self):
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse('exercise_edit', args=[self.exercise.pk]),
+            self.data(standard_key='bench_press'),
+        )
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.standard_key, 'bench_press')
+
+    def test_admin_unlinks_with_none_stored_as_null(self):
+        self.exercise.standard_key = 'bench_press'
+        self.exercise.save()
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse('exercise_edit', args=[self.exercise.pk]), self.data(standard_key='')
+        )
+        self.exercise.refresh_from_db()
+        self.assertIsNone(self.exercise.standard_key)
+
+    def test_invalid_key_rejected(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('exercise_edit', args=[self.exercise.pk]),
+            self.data(standard_key='inventato'),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.exercise.refresh_from_db()
+        self.assertIsNone(self.exercise.standard_key)
+
+    def test_regular_user_cannot_set_key_by_forging_post(self):
+        self.client.force_login(self.author)
+        self.client.post(
+            reverse('exercise_edit', args=[self.exercise.pk]),
+            self.data(standard_key='bench_press'),
+        )
+        self.exercise.refresh_from_db()
+        self.assertIsNone(self.exercise.standard_key)
+
+    def test_author_edit_keeps_link_set_by_admin(self):
+        self.exercise.standard_key = 'bench_press'
+        self.exercise.save()
+        self.client.force_login(self.author)
+        self.client.post(
+            reverse('exercise_edit', args=[self.exercise.pk]),
+            self.data(description='nuova descrizione'),
+        )
+        self.exercise.refresh_from_db()
+        self.assertEqual(self.exercise.description, 'nuova descrizione')
+        self.assertEqual(self.exercise.standard_key, 'bench_press')
+
+    def test_admin_can_set_key_when_creating(self):
+        self.client.force_login(self.admin)
+        self.client.post(
+            reverse('exercise_create'),
+            self.data(name='Panca Olimpica', standard_key='bench_press'),
+        )
+        self.assertEqual(
+            Exercise.objects.get(name='Panca Olimpica').standard_key, 'bench_press'
+        )
+
+    def test_list_marks_linked_exercises(self):
+        self.client.force_login(self.author)
+        self.assertNotContains(self.client.get(reverse('exercise_list')), 'bi-trophy')
+        self.exercise.standard_key = 'squat'
+        self.exercise.save()
+        self.assertContains(self.client.get(reverse('exercise_list')), 'bi-trophy')
+
+    def test_every_standard_has_a_label(self):
+        self.assertEqual(set(ss.STANDARD_LABELS), set(ss.STANDARDS))

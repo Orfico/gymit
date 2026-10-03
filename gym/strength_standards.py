@@ -9,6 +9,15 @@ Beginner=5°, Novice=20°, Intermediate=50°, Advanced=80°, Elite=95°.
 # Dal più basso al più alto: l'ordine serve a stabilire il livello raggiunto.
 LEVELS = ('beginner', 'novice', 'intermediate', 'advanced', 'elite')
 
+# Nomi mostrati nell'app per scegliere lo standard di un esercizio.
+STANDARD_LABELS = {
+    'bench_press': 'Panca piana',
+    'squat': 'Squat',
+    'deadlift': 'Stacco da terra',
+    'overhead_press': 'Military press / lento avanti',
+    'barbell_row': 'Rematore con bilanciere',
+}
+
 # Chiave → {sesso → {livello → multiplo BW}}
 STANDARDS = {
     'bench_press': {

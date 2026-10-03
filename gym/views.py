@@ -688,7 +688,7 @@ def exercise_autocomplete(request):
 
 @login_required
 def exercise_create(request):
-    form = ExerciseForm(request.POST or None)
+    form = ExerciseForm(request.POST or None, user=request.user)
     if form.is_valid():
         exercise = form.save(commit=False)
         exercise.created_by = request.user
@@ -702,7 +702,7 @@ def exercise_edit(request, pk):
     exercise = get_object_or_404(Exercise, pk=pk)
     if not exercise.can_be_managed_by(request.user):
         raise PermissionDenied('Puoi modificare solo gli esercizi che hai creato.')
-    form = ExerciseForm(request.POST or None, instance=exercise)
+    form = ExerciseForm(request.POST or None, instance=exercise, user=request.user)
     if form.is_valid():
         form.save()
         messages.success(request, f'Esercizio "{exercise.name}" aggiornato.')

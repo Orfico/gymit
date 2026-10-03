@@ -4,6 +4,7 @@ from datetime import date
 from django import forms
 
 from . import youtube
+from .strength_standards import STANDARD_LABELS
 from .models import (
     WorkoutPlan, PlannedExercise, ExerciseLog, Exercise, PlanFolder, UserProfile,
 )
@@ -146,7 +147,8 @@ class ExerciseForm(forms.ModelForm):
     """Permette all'utente di aggiungere esercizi personalizzati."""
     class Meta:
         model = Exercise
-        fields = ['name', 'muscle_group', 'description', 'is_bodyweight']
+        # 'standard_key' è nel form solo per gli admin (vedi __init__)
+        fields = ['name', 'muscle_group', 'description', 'is_bodyweight', 'standard_key']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control',
@@ -160,6 +162,31 @@ class ExerciseForm(forms.ModelForm):
             }),
             'is_bodyweight': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Collegare un esercizio a uno standard è una scelta sul catalogo
+        # condiviso: lo decidono gli admin. Per gli altri il campo non esiste,
+        # quindi modificare un proprio esercizio non cancella il collegamento.
+        if user is None or not user.is_staff:
+            del self.fields['standard_key']
+        else:
+            self.fields['standard_key'] = forms.ChoiceField(
+                label='Standard di forza',
+                required=False,
+                choices=[('', 'Nessuno')] + list(STANDARD_LABELS.items()),
+                help_text=(
+                    'Abilita il benchmark di forza. Scegline uno solo se è '
+                    'davvero la stessa alzata: una variante con carichi '
+                    'diversi darebbe un confronto sbagliato.'
+                ),
+                widget=forms.Select(attrs={'class': 'form-select'}),
+            )
+            self.initial['standard_key'] = self.instance.standard_key or ''
+
+    def clean_standard_key(self):
+        # Il campo del modello ammette NULL: "Nessuno" non va salvato come ''.
+        return self.cleaned_data.get('standard_key') or None
 
 
 
