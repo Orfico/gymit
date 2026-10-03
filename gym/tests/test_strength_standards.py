@@ -184,6 +184,52 @@ class UserProfileSignalTest(TestCase):
         self.assertEqual(UserProfile.objects.count(), 0)
 
 
+class LegacyUserTest(TestCase):
+    """Utenti registrati prima del profilo: nessuna riga, ma tutto funziona."""
+
+    def setUp(self):
+        self.user = make_user('legacy')
+        UserProfile.objects.filter(user=self.user).delete()
+        self.client.force_login(self.user)
+
+    def test_backfill_creates_missing_profiles_only(self):
+        import importlib
+        from django.apps import apps
+        migration = importlib.import_module('gym.migrations.0012_backfill_user_profiles')
+        has_profile = make_user('modern')
+        has_profile.userprofile.body_weight = Decimal('75')
+        has_profile.userprofile.save()
+
+        migration.backfill_profiles(apps, None)
+
+        self.assertTrue(UserProfile.objects.filter(user=self.user).exists())
+        self.assertEqual(UserProfile.objects.count(), 2)
+        self.assertEqual(
+            UserProfile.objects.get(user=has_profile).body_weight, Decimal('75')
+        )
+        migration.backfill_profiles(apps, None)  # idempotente
+        self.assertEqual(UserProfile.objects.count(), 2)
+
+    def test_profile_page_opens_without_row(self):
+        response = self.client.get(reverse('physical_profile'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(UserProfile.objects.filter(user=self.user).exists())
+
+    def test_exercise_page_invites_to_fill_profile(self):
+        exercise = make_bench()
+        response = self.client.get(reverse('exercise_progress', args=[exercise.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse('physical_profile'))
+
+    def test_benchmark_appears_after_filling_profile(self):
+        exercise = make_bench()
+        self.client.post(reverse('physical_profile'), {
+            'body_weight': '80', 'sex': 'M', 'training_level': 'intermediate',
+        })
+        response = self.client.get(reverse('exercise_progress', args=[exercise.pk]))
+        self.assertEqual(response.context['benchmark_data']['benchmark_1rm'], 100.0)
+
+
 class UserProfileFormTest(TestCase):
     def test_empty_form_is_valid(self):
         form = UserProfileForm(data={'training_level': 'beginner'})
