@@ -645,8 +645,8 @@ class PlanFolderReorderTest(TestCase):
 
 
 class ReorderModeMarkupTest(TestCase):
-    """Il drag & drop è attivo solo dopo aver premuto il toggle "Riordina":
-    il markup iniziale non deve avere elementi già draggable né hint visibili."""
+    """Il drag & drop è attivo solo dopo aver premuto il toggle (icona ↕):
+    il markup iniziale non deve avere elementi già draggable."""
 
     def setUp(self):
         self.user = make_user('reordermode')
@@ -662,7 +662,6 @@ class ReorderModeMarkupTest(TestCase):
     def _assert_toggle(self, html):
         self.assertIn('id="reorderToggle"', html)
         self.assertIn('aria-pressed="false"', html)
-        # Il file statico viene hashato da WhiteNoise (reorder_mode.<hash>.js)
         self.assertIn('reorder_mode', html)
 
     def test_plan_detail_has_toggle_and_nothing_draggable_initially(self):
@@ -671,13 +670,6 @@ class ReorderModeMarkupTest(TestCase):
         self._assert_toggle(html)
         self.assertNotIn('draggable="true"', html)
         self.assertIn("toggleId: 'reorderToggle'", html)
-
-    def test_plan_detail_hint_hidden_until_reorder_mode(self):
-        plan = self._plan_with_exercise()
-        html = self.client.get(reverse('plan_detail', kwargs={'pk': plan.pk})).content.decode()
-        self.assertIn('reorder-hint', html)
-        # L'attributo hidden è nello stesso tag <small> del hint
-        self.assertIn(' hidden>', html)
 
     def test_plan_detail_without_exercises_has_no_toggle(self):
         plan = make_plan(self.user, 'Vuota')
@@ -692,12 +684,6 @@ class ReorderModeMarkupTest(TestCase):
         self._assert_toggle(html)
         self.assertNotIn('draggable="true"', html)
         self.assertIn("toggleId: 'reorderToggle'", html)
-
-    def test_plan_list_hint_hidden_until_reorder_mode(self):
-        make_plan(self.user, 'Sciolta')
-        html = self.client.get(reverse('plan_list')).content.decode()
-        self.assertIn('reorder-hint', html)
-        self.assertIn(' hidden>', html)
 
     def test_plan_list_without_plans_has_no_toggle(self):
         html = self.client.get(reverse('plan_list')).content.decode()

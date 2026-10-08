@@ -2,13 +2,12 @@
  * GymIt — Modalità "Riordina" per le liste con drag & drop.
  *
  * Il trascinamento non è attivo di default: l'utente lo abilita con un
- * pulsante toggle (aria-pressed) e lo disabilita quando ha finito. Così un
- * tap o un trascinamento accidentale su una scheda/esercizio non riordina
- * nulla.
+ * pulsante toggle (icona, aria-pressed) e lo disabilita quando ha finito.
+ * Così un tap o un trascinamento accidentale non riordina nulla.
  *
  * Con la modalità attiva il contenitore riceve la classe `reorder-mode`
- * (che rende visibili le maniglie e gli eventuali `.reorder-hint`) e gli
- * elementi `itemSelector` diventano draggable; da spenta tornano normali.
+ * (che rende visibili le maniglie) e gli elementi `itemSelector` diventano
+ * draggable; da spenta tornano normali.
  *
  * Ritorna { isActive(), set(bool) } così dragdrop.js / plan_tree.js possono
  * ignorare qualunque gesto che arrivi a modalità spenta.
@@ -18,12 +17,7 @@ function initReorderMode({ container, button, itemSelector }) {
     const toggle = typeof button === 'string' ? document.getElementById(button) : button;
     if (!list || !toggle) return { isActive: () => false, set: () => {} };
 
-    const labelEl = toggle.querySelector('.reorder-toggle-label');
     let active = false;
-
-    // Fissa la larghezza del bottone sul testo più lungo ("Riordina")
-    // così non cambia dimensione quando diventa "Fine".
-    toggle.style.minWidth = toggle.offsetWidth + 'px';
 
     function set(on) {
         active = !!on;
@@ -31,8 +25,6 @@ function initReorderMode({ container, button, itemSelector }) {
         toggle.setAttribute('aria-pressed', String(active));
         toggle.classList.toggle('btn-warning', active);
         toggle.classList.toggle('btn-outline-secondary', !active);
-        if (labelEl) labelEl.textContent = active ? 'Fine' : 'Riordina';
-        document.querySelectorAll('.reorder-hint').forEach(el => { el.hidden = !active; });
         list.querySelectorAll(itemSelector).forEach(item => {
             if (active) item.setAttribute('draggable', 'true');
             else item.removeAttribute('draggable');
