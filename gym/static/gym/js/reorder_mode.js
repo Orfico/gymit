@@ -21,6 +21,10 @@ function initReorderMode({ container, button, itemSelector }) {
     const labelEl = toggle.querySelector('.reorder-toggle-label');
     let active = false;
 
+    // Fissa la larghezza del bottone sul testo più lungo ("Riordina")
+    // così non cambia dimensione quando diventa "Fine".
+    toggle.style.minWidth = toggle.offsetWidth + 'px';
+
     function set(on) {
         active = !!on;
         list.classList.toggle('reorder-mode', active);
