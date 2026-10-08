@@ -14,10 +14,17 @@
  * a questa scala (poche schede/cartelle per utente) il costo è trascurabile.
  *
  * Desktop: HTML5 Drag and Drop API. Mobile: Touch Events sul drag-handle.
+ * Il trascinamento è attivo solo in "modalità riordina" (reorder_mode.js):
+ * il toggle `toggleId` abilita/disabilita draggable e maniglie.
  */
-function initPlanTree({ treeId, reorderRootUrl, csrfToken }) {
+function initPlanTree({ treeId, toggleId, reorderRootUrl, csrfToken }) {
     const tree = document.getElementById(treeId);
     if (!tree) return;
+
+    const ITEM_SELECTOR = '.plan-folder, .drag-item[data-type="plan"]';
+    const reorder = initReorderMode({
+        container: tree, button: toggleId, itemSelector: ITEM_SELECTOR,
+    });
 
     // ── Indicatore di salvataggio (stesso stile di dragdrop.js) ──────
     const savingIndicator = document.createElement('div');
@@ -35,8 +42,6 @@ function initPlanTree({ treeId, reorderRootUrl, csrfToken }) {
     let touchOffsetY = 0;
     let touchClone = null;
     let dropFolderTarget = null; // cartella attualmente evidenziata come drop-target
-
-    const ITEM_SELECTOR = '.plan-folder, .drag-item[data-type="plan"]';
 
     // ── Helpers di struttura ─────────────────────────────────────
     function getSiblingItems(container) {
@@ -194,6 +199,8 @@ function initPlanTree({ treeId, reorderRootUrl, csrfToken }) {
 
     // ── Desktop: HTML5 Drag and Drop ─────────────────────────────
     tree.addEventListener('dragstart', (e) => {
+        // Link/immagini sono trascinabili di default: a modalità spenta no.
+        if (!reorder.isActive()) { e.preventDefault(); return; }
         const item = e.target.closest(ITEM_SELECTOR);
         if (!item) return;
         dragged = item;
@@ -219,6 +226,7 @@ function initPlanTree({ treeId, reorderRootUrl, csrfToken }) {
 
     // ── Mobile: Touch Events (solo dal drag-handle) ──────────────
     tree.addEventListener('touchstart', (e) => {
+        if (!reorder.isActive()) return;
         const handle = e.target.closest('.drag-handle');
         if (!handle) return;
         const item = handle.closest(ITEM_SELECTOR);

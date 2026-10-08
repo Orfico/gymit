@@ -55,13 +55,18 @@
         <div>
             <h6 class="text-secondary text-uppercase fw-bold small mb-0">Esercizi ({{ planned|length }})</h6>
             {% if planned %}
-            <small class="text-secondary" style="font-size:11px;">
+            <small class="text-secondary reorder-hint" style="font-size:11px;" hidden>
                 <i class="bi bi-grip-vertical me-1"></i>Trascina per riordinare
             </small>
             {% endif %}
         </div>
         <div class="d-flex gap-2 flex-shrink-0">
             {% if planned %}
+            <button type="button" id="reorderToggle" class="btn btn-outline-secondary btn-sm"
+                    aria-pressed="false" title="Riordina gli esercizi">
+                <i class="bi bi-arrow-down-up"></i>
+                <span class="reorder-toggle-label">Riordina</span>
+            </button>
             <button type="button" id="resetSetsBtn" class="btn btn-outline-secondary btn-sm" title="Azzera le serie completate">
                 <i class="bi bi-arrow-counterclockwise"></i>
             </button>
@@ -159,6 +164,7 @@
 
 {% block extra_js %}
 {% load static %}
+<script src="{% static 'gym/js/reorder_mode.js' %}"></script>
 <script src="{% static 'gym/js/dragdrop.js' %}"></script>
 <script src="{% static 'gym/js/swipe.js' %}"></script>
 <script src="{% static 'gym/js/setdots.js' %}"></script>
@@ -166,6 +172,7 @@
     document.addEventListener('DOMContentLoaded', function () {
         initDragDrop({
             listId: 'exercise-list',
+            toggleId: 'reorderToggle',
             reorderUrl: '{% url "plan_reorder" plan.pk %}',
             csrfToken: '{{ csrf_token }}',
         });

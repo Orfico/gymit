@@ -139,14 +139,16 @@ canvas {
     user-select: none;
 }
 
-.drag-item[draggable="true"] {
-    cursor: default;
-}
-
+/* Maniglie e hint compaiono solo in "modalità riordina" (reorder_mode.js) */
 .drag-handle {
+    display: none;
     cursor: grab;
     color: #555;
     transition: color 0.15s ease;
+}
+
+.reorder-mode .drag-handle {
+    display: block;
 }
 
 .drag-handle:hover,

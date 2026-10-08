@@ -109,3 +109,14 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
+# ── Test speedups ──────────────────────────────────────────────────────────────
+# Rileva se è in corso la test suite per disabilitare operazioni costose:
+# - WhiteNoise hashing/gzip dei file statici (non serve nei test)
+# - bcrypt/PBKDF2 password hashing (MD5 velocissimo basta per i test)
+import sys
+if 'test' in sys.argv:
+    STORAGES['staticfiles'] = {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    }
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']

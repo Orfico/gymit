@@ -4,12 +4,20 @@
  * Desktop : HTML5 Drag and Drop API (draggable="true")
  * Mobile  : Touch Events (touchstart / touchmove / touchend)
  *
+ * Il trascinamento è attivo solo in "modalità riordina" (vedi
+ * reorder_mode.js): il toggle `toggleId` abilita/disabilita draggable e
+ * maniglie; a modalità spenta ogni gesto di drag viene ignorato.
+ *
  * Al rilascio salva il nuovo ordine via fetch POST → /plans/<pk>/reorder/
  */
 
-function initDragDrop({ listId, reorderUrl, csrfToken }) {
+function initDragDrop({ listId, toggleId, reorderUrl, csrfToken }) {
     const list = document.getElementById(listId);
     if (!list) return;
+
+    const reorder = initReorderMode({
+        container: list, button: toggleId, itemSelector: '.drag-item',
+    });
 
     // ── Indicatore di salvataggio ordine ────────────────────────────
     const savingIndicator = document.createElement('div');
@@ -97,6 +105,8 @@ function initDragDrop({ listId, reorderUrl, csrfToken }) {
     // ── Desktop: HTML5 Drag and Drop ──────────────────────────────
 
     list.addEventListener('dragstart', (e) => {
+        // Link/immagini sono trascinabili di default: a modalità spenta no.
+        if (!reorder.isActive()) { e.preventDefault(); return; }
         dragged = e.target.closest('.drag-item');
         if (!dragged) return;
         placeholder = createPlaceholder(dragged);
@@ -140,6 +150,7 @@ function initDragDrop({ listId, reorderUrl, csrfToken }) {
     let touchClone = null;  // copia visiva dell'elemento che segue il dito
 
     list.addEventListener('touchstart', (e) => {
+        if (!reorder.isActive()) return;
         const handle = e.target.closest('.drag-handle');
         if (!handle) return;
 
@@ -211,11 +222,5 @@ function initDragDrop({ listId, reorderUrl, csrfToken }) {
         placeholder = null;
         dragged = null;
         saveOrder();
-    });
-
-    // ── Abilita draggable su tutti gli item ───────────────────────
-
-    getItems().forEach(item => {
-        item.setAttribute('draggable', 'true');
     });
 }
