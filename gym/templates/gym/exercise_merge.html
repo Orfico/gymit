@@ -1,0 +1,177 @@
+{% extends 'gym/base.html' %}
+{% block title %}Unifica esercizi — GymIt{% endblock %}
+
+{% block content %}
+<div class="pt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0">
+            <i class="bi bi-arrows-collapse me-2 text-warning"></i>Unifica esercizi
+        </h5>
+        <a href="{% url 'exercise_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Esercizi
+        </a>
+    </div>
+
+    <p class="text-secondary small mb-4">
+        Unifica esercizi duplicati mantenendo tutti i log, le schede e i benchmark.
+        Seleziona quale esercizio mantenere: gli altri verranno eliminati e i loro dati trasferiti.
+    </p>
+
+    {% if groups %}
+    <h6 class="text-uppercase text-secondary small fw-bold mb-3">
+        <i class="bi bi-magic me-1"></i>Duplicati rilevati ({{ groups|length }})
+    </h6>
+
+    {% for group in groups %}
+    <form method="post" class="merge-group-form">
+        {% csrf_token %}
+        <div class="card bg-black border-secondary mb-3">
+            <div class="card-body py-3">
+                {% for ex in group.exercises %}
+                <input type="hidden" name="group_ids" value="{{ ex.pk }}" data-name="{{ ex.name }}">
+                <div class="form-check mb-2 {% if not forloop.last %}border-bottom border-secondary pb-2{% endif %}">
+                    <input class="form-check-input mt-2" type="radio" name="winner"
+                           value="{{ ex.pk }}" id="ex_{{ ex.pk }}"
+                           data-name="{{ ex.name }}"
+                           {% if forloop.first %}checked{% endif %}>
+                    <label class="form-check-label w-100" for="ex_{{ ex.pk }}">
+                        <span class="fw-semibold">{{ ex.name }}</span>
+                        {% if ex.created_by %}
+                        <span class="text-secondary small">({{ ex.created_by.username }})</span>
+                        {% else %}
+                        <span class="text-secondary small">(sistema)</span>
+                        {% endif %}
+                        <div class="mt-1 d-flex gap-2 flex-wrap">
+                            <span class="badge bg-secondary" style="font-size:10px;">
+                                <i class="bi bi-journal-text"></i> {{ ex.log_count }} log
+                            </span>
+                            <span class="badge bg-secondary" style="font-size:10px;">
+                                <i class="bi bi-clipboard"></i> {{ ex.plan_count }} schede
+                            </span>
+                            {% if ex.is_bodyweight %}
+                            <span class="badge bg-info text-dark" style="font-size:10px;">
+                                <i class="bi bi-activity"></i> Corpo libero
+                            </span>
+                            {% endif %}
+                            {% if ex.standard_key %}
+                            <span class="badge bg-warning text-dark" style="font-size:10px;">
+                                <i class="bi bi-trophy"></i> Benchmark
+                            </span>
+                            {% endif %}
+                            {% if ex.has_video %}
+                            <span class="badge bg-danger" style="font-size:10px;">
+                                <i class="bi bi-youtube"></i> Video
+                            </span>
+                            {% endif %}
+                        </div>
+                    </label>
+                </div>
+                {% endfor %}
+
+                <button type="submit" class="btn btn-warning btn-sm fw-bold w-100 mt-2">
+                    <i class="bi bi-arrows-collapse me-1"></i>Unifica nel selezionato
+                </button>
+            </div>
+        </div>
+    </form>
+    {% endfor %}
+    {% else %}
+    <div class="text-center text-secondary py-4 mb-3">
+        <i class="bi bi-check-circle fs-1"></i>
+        <p class="mt-2 mb-0">Nessun duplicato per nome rilevato automaticamente.</p>
+    </div>
+    {% endif %}
+
+    <h6 class="text-uppercase text-secondary small fw-bold mb-3 mt-4">
+        <i class="bi bi-tools me-1"></i>Unificazione manuale
+    </h6>
+    <p class="text-secondary small">
+        Seleziona due esercizi qualsiasi per unificarli. Utile per varianti in lingue diverse
+        (es. &ldquo;Squat&rdquo; e &ldquo;Accosciata&rdquo;) o nomi diversi dello stesso movimento.
+    </p>
+    <form method="post" id="manualMergeForm">
+        {% csrf_token %}
+        <div class="card bg-black border-secondary">
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="manualWinner" class="form-label small text-secondary">
+                        <i class="bi bi-check-circle text-success me-1"></i>Esercizio da mantenere
+                    </label>
+                    <select name="winner" class="form-select" required id="manualWinner">
+                        <option value="">Seleziona...</option>
+                        {% for ex in all_exercises %}
+                        <option value="{{ ex.pk }}">{{ ex.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="manualLoser" class="form-label small text-secondary">
+                        <i class="bi bi-x-circle text-danger me-1"></i>Esercizio da eliminare (i dati verranno trasferiti)
+                    </label>
+                    <select name="loser" class="form-select" required id="manualLoser">
+                        <option value="">Seleziona...</option>
+                        {% for ex in all_exercises %}
+                        <option value="{{ ex.pk }}">{{ ex.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-warning btn-sm fw-bold w-100">
+                    <i class="bi bi-arrows-collapse me-1"></i>Unifica
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.merge-group-form').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            var winner = form.querySelector('input[name="winner"]:checked');
+            if (!winner) { e.preventDefault(); return; }
+
+            var loserNames = [];
+            form.querySelectorAll('input[name="group_ids"]').forEach(function (input) {
+                if (input.value !== winner.value) {
+                    loserNames.push(input.dataset.name);
+                }
+            });
+
+            if (!confirm(
+                'Unificare ' + loserNames.map(function (n) { return '“' + n + '”'; }).join(', ') +
+                ' in “' + winner.dataset.name + '”?\n\n' +
+                'I log e le schede verranno trasferiti.\nQuesta azione non è reversibile.'
+            )) {
+                e.preventDefault();
+            }
+        });
+    });
+
+    var manualForm = document.getElementById('manualMergeForm');
+    if (manualForm) {
+        manualForm.addEventListener('submit', function (e) {
+            var winner = document.getElementById('manualWinner');
+            var loser = document.getElementById('manualLoser');
+
+            if (!winner.value || !loser.value) { e.preventDefault(); return; }
+            if (winner.value === loser.value) {
+                e.preventDefault();
+                alert('Seleziona due esercizi diversi.');
+                return;
+            }
+
+            if (!confirm(
+                'Unificare “' + loser.options[loser.selectedIndex].text +
+                '” in “' + winner.options[winner.selectedIndex].text + '”?\n\n' +
+                'Tutti i log, le schede e i benchmark verranno trasferiti.\n' +
+                'Questa azione non è reversibile.'
+            )) {
+                e.preventDefault();
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

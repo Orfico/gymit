@@ -14,6 +14,7 @@ from django.utils.dateparse import parse_date
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 
 from .forms import (
     WorkoutPlanForm,
@@ -782,6 +783,135 @@ def exercise_delete(request, pk):
         exercise.delete()  # CASCADE elimina anche tutti gli ExerciseLog associati
         messages.success(request, f'"{name}" e tutti i log associati sono stati eliminati.')
     return redirect('exercise_list')
+
+
+# ─── Unificazione esercizi (solo admin) ──────────────────────────────────────
+
+@login_required
+def exercise_merge(request):
+    """Pagina admin per unificare esercizi duplicati."""
+    if not request.user.is_staff:
+        raise PermissionDenied('Solo gli amministratori possono unificare gli esercizi.')
+
+    if request.method == 'POST':
+        return _execute_exercise_merge(request)
+
+    from django.db.models.functions import Lower
+
+    dupe_lower_names = list(
+        Exercise.objects
+        .annotate(lower_name=Lower('name'))
+        .values('lower_name')
+        .annotate(count=Count('id'))
+        .filter(count__gt=1)
+        .order_by('lower_name')
+        .values_list('lower_name', flat=True)
+    )
+
+    groups = []
+    for lower_name in dupe_lower_names:
+        exercises = list(
+            Exercise.objects
+            .filter(name__iexact=lower_name)
+            .annotate(
+                log_count=Count('logs', distinct=True),
+                plan_count=Count('plannedexercise', distinct=True),
+            )
+            .select_related('created_by')
+        )
+        exercises.sort(key=lambda ex: (
+            -ex.log_count,
+            -int(bool(ex.standard_key)),
+            -int(bool(ex.youtube_video_id)),
+            ex.pk,
+        ))
+        groups.append({'exercises': exercises})
+
+    return render(request, 'gym/exercise_merge.html', {
+        'groups': groups,
+        'all_exercises': Exercise.objects.order_by('name'),
+    })
+
+
+def _execute_exercise_merge(request):
+    """Esegue l'unificazione: trasferisce log, schede e attributi."""
+    if not request.user.is_staff:
+        raise PermissionDenied
+
+    winner_id = request.POST.get('winner')
+    group_ids = request.POST.getlist('group_ids')
+    manual_loser = request.POST.get('loser')
+
+    if group_ids:
+        loser_ids = [eid for eid in group_ids if eid != winner_id]
+    elif manual_loser:
+        if manual_loser == winner_id:
+            messages.error(request, 'Seleziona due esercizi diversi.')
+            return redirect('exercise_merge')
+        loser_ids = [manual_loser]
+    else:
+        messages.error(request, 'Seleziona gli esercizi da unificare.')
+        return redirect('exercise_merge')
+
+    if not winner_id or not loser_ids:
+        messages.error(request, 'Seleziona l\'esercizio da mantenere e almeno uno da eliminare.')
+        return redirect('exercise_merge')
+
+    try:
+        winner = Exercise.objects.get(pk=winner_id)
+    except Exercise.DoesNotExist:
+        messages.error(request, 'Esercizio da mantenere non trovato.')
+        return redirect('exercise_merge')
+
+    losers = list(Exercise.objects.filter(pk__in=loser_ids))
+    if not losers:
+        messages.error(request, 'Esercizi da unificare non trovati.')
+        return redirect('exercise_merge')
+
+    total_logs = 0
+    total_plans = 0
+    loser_names = []
+
+    with transaction.atomic():
+        for loser in losers:
+            total_logs += ExerciseLog.objects.filter(exercise=loser).update(exercise=winner)
+
+            plans_with_winner = set(
+                PlannedExercise.objects.filter(exercise=winner)
+                .values_list('plan_id', flat=True)
+            )
+            PlannedExercise.objects.filter(
+                exercise=loser, plan_id__in=plans_with_winner
+            ).delete()
+            total_plans += PlannedExercise.objects.filter(exercise=loser).update(exercise=winner)
+
+            changed_fields = []
+            if not winner.standard_key and loser.standard_key:
+                winner.standard_key = loser.standard_key
+                changed_fields.append('standard_key')
+            if not winner.youtube_video_id and loser.youtube_video_id:
+                winner.youtube_video_id = loser.youtube_video_id
+                winner.video_added_by = loser.video_added_by
+                winner.video_added_at = loser.video_added_at
+                changed_fields.extend([
+                    'youtube_video_id', 'video_added_by', 'video_added_at',
+                ])
+            if not winner.description and loser.description:
+                winner.description = loser.description
+                changed_fields.append('description')
+            if changed_fields:
+                winner.save(update_fields=changed_fields)
+
+            loser_names.append(loser.name)
+            loser.delete()
+
+    names = ', '.join(f'"{n}"' for n in loser_names)
+    messages.success(
+        request,
+        f'{names} → "{winner.name}": '
+        f'{total_logs} log trasferiti, {total_plans} schede aggiornate.'
+    )
+    return redirect('exercise_merge')
 
 
 # ─── PWA ──────────────────────────────────────────────────────────────────────

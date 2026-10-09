@@ -40,6 +40,7 @@ urlpatterns = [
     # Catalogo esercizi
     path('exercises/', views.exercise_list, name='exercise_list'),
     path('exercises/create/', views.exercise_create, name='exercise_create'),
+    path('exercises/merge/', views.exercise_merge, name='exercise_merge'),
     path('exercises/<int:pk>/edit/', views.exercise_edit, name='exercise_edit'),
     path('exercises/<int:pk>/delete/', views.exercise_delete, name='exercise_delete'),
     path('exercises/<int:pk>/video/', views.exercise_video_set, name='exercise_video_set'),
